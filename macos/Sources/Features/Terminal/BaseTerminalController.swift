@@ -889,8 +889,8 @@ class BaseTerminalController: NSWindowController,
            surfaceTree.contains(titleSurface) {
             // If we have a surface, we want to listen for title changes.
             titleSurface.$title
-                .combineLatest(titleSurface.$bell)
-                .map { [weak self] in self?.computeTitle(title: $0, bell: $1) ?? "" }
+                .combineLatest(titleSurface.$bell, titleSurface.$pwd)
+                .map { [weak self] in self?.computeTitle(title: $0, bell: $1, pwd: $2) ?? "" }
                 .sink { [weak self] in self?.titleDidChange(to: $0) }
                 .store(in: &focusedSurfaceCancellables)
         } else {
@@ -899,13 +899,21 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    private func computeTitle(title: String, bell: Bool) -> String {
-        var result = title
-        if bell && ghostty.config.bellFeatures.contains(.title) {
-            result = "🔔 \(result)"
-        }
+    /// A surface's title: the directory it sits in, falling back to the pty title.
+    private func computeTitle(title: String, bell: Bool, pwd: String?) -> String {
+        decorate(title: Self.directoryName(of: pwd) ?? title, bell: bell)
+    }
 
-        return result
+    /// The last path component of a reported pwd, nil until OSC 7 reports one.
+    private static func directoryName(of pwd: String?) -> String? {
+        guard let pwd, !pwd.isEmpty else { return nil }
+        let name = (pwd as NSString).lastPathComponent
+        return name.isEmpty ? nil : name
+    }
+
+    private func decorate(title: String, bell: Bool) -> String {
+        guard bell && ghostty.config.bellFeatures.contains(.title) else { return title }
+        return "🔔 \(title)"
     }
 
     private func titleDidChange(to: String) {
@@ -917,7 +925,7 @@ class BaseTerminalController: NSWindowController,
         guard let window else { return }
 
         if let titleOverride {
-            window.title = computeTitle(
+            window.title = decorate(
                 title: titleOverride,
                 bell: focusedSurface?.bell ?? false)
             return

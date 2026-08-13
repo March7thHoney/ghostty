@@ -1871,7 +1871,8 @@ extension Ghostty {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             let uuid = UUID(uuidString: try container.decode(String.self, forKey: .uuid))
             var config = Ghostty.SurfaceConfiguration()
-            config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
+            let savedPwd = try container.decode(String?.self, forKey: .pwd)
+            config.workingDirectory = savedPwd
             let savedTitle = try container.decodeIfPresent(String.self, forKey: .title)
             let isUserSetTitle = try container.decodeIfPresent(Bool.self, forKey: .isUserSetTitle) ?? false
 
@@ -1889,6 +1890,9 @@ extension Ghostty {
             }
 
             self.init(app, baseConfig: config, uuid: uuid)
+
+            // Seed the pwd so the tab shows the directory before the first prompt.
+            self.pwd = savedPwd
 
             // Restore the saved title after initialization
             if let title = savedTitle {
