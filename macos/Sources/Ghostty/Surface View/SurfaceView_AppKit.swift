@@ -1858,7 +1858,6 @@ extension Ghostty {
             case title
             case isUserSetTitle
             case restoreCommand
-            case remotePwd
         }
 
         required convenience init(from decoder: Decoder) throws {
@@ -1885,9 +1884,7 @@ extension Ghostty {
             // unrestorable, so the session could only ever be restored once.
             let restoreCommand = try container.decodeIfPresent(
                 SessionRestoreCommand.self, forKey: .restoreCommand)
-            let remotePwd = try container.decodeIfPresent(
-                Ghostty.RemotePwd.self, forKey: .remotePwd)
-            if let line = restoreCommand?.shellCommandLine(remotePwd: remotePwd) {
+            if let line = restoreCommand?.shellCommandLine() {
                 config.initialInput = "\(line)\n"
             }
 
@@ -1914,7 +1911,6 @@ extension Ghostty {
             // point is what's running *now*: if the user quit Claude and went
             // back to their shell, restoring Claude would be wrong.
             try container.encodeIfPresent(sessionRestoreCommand, forKey: .restoreCommand)
-            try container.encodeIfPresent(remotePwd, forKey: .remotePwd)
         }
 
         /// The program running in this surface that session restore knows how

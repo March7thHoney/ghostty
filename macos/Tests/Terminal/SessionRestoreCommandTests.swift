@@ -63,9 +63,9 @@ struct SessionRestoreCommandTests {
     // MARK: - ssh detection
 
     @Test func sshDetection() {
-        let cmd = SessionRestoreCommand.detect(argv: ["ssh", "windows"], executablePath: "/usr/bin/ssh")
+        let cmd = SessionRestoreCommand.detect(argv: ["ssh", "example-host"], executablePath: "/usr/bin/ssh")
         #expect(cmd?.kind == .ssh)
-        #expect(cmd?.argv == ["ssh", "windows"])
+        #expect(cmd?.argv == ["ssh", "example-host"])
     }
 
     // MARK: - Negatives
@@ -92,50 +92,6 @@ struct SessionRestoreCommandTests {
         #expect(cmd.shellCommandLine() == "ssh example-host")
     }
 
-    @Test func sshReplaysWithPosixRemotePwd() {
-        let cmd = SessionRestoreCommand(kind: .ssh, argv: ["ssh", "example-host"])
-        let line = cmd.shellCommandLine(remotePwd: .init(host: "example", path: "/home/someone/work"))
-        #expect(line == "ssh -t -o RemoteCommand=none example-host 'cd /home/someone/work && exec \"${SHELL:-/bin/sh}\" -l'")
-    }
-
-    @Test func sshReplaysWithWindowsRemotePwd() {
-        let cmd = SessionRestoreCommand(kind: .ssh, argv: ["ssh", "example-win"])
-        let line = cmd.shellCommandLine(remotePwd: .init(host: "EXAMPLE-PC", path: "/C:/Users/someone"))
-        #expect(line == "ssh -t -o RemoteCommand=none example-win 'powershell -NoExit -Command \"Set-Location -LiteralPath '\"'\"'C:/Users/someone'\"'\"'\"'")
-    }
-
-    /// If the user already asked ssh to run something, we must not append to it.
-    @Test func sshWithExistingRemoteCommandIsLeftAlone() {
-        let cmd = SessionRestoreCommand(kind: .ssh, argv: ["ssh", "host", "tmux", "attach"])
-        let line = cmd.shellCommandLine(remotePwd: .init(host: "host", path: "/home/someone"))
-        #expect(line == "ssh host tmux attach")
-    }
-
-    @Test func sshRemoteCommandDetection() {
-        #expect(!SessionRestoreCommand.hasRemoteCommand(args: ["windows"]))
-        #expect(!SessionRestoreCommand.hasRemoteCommand(args: ["-p", "2222", "windows"]))
-        #expect(!SessionRestoreCommand.hasRemoteCommand(args: ["-t", "windows"]))
-        #expect(!SessionRestoreCommand.hasRemoteCommand(args: ["windows", "-p", "2222"]))
-        #expect(!SessionRestoreCommand.hasRemoteCommand(args: ["-p2222", "windows"]))
-        #expect(SessionRestoreCommand.hasRemoteCommand(args: ["windows", "ls"]))
-        #expect(SessionRestoreCommand.hasRemoteCommand(args: ["-p", "2222", "windows", "ls"]))
-    }
-
-    // MARK: - Remote path shape
-
-    @Test func windowsPathRecognition() {
-        #expect(SessionRestoreCommand.windowsPath(from: "/C:/Users/someone") == "C:/Users/someone")
-        #expect(SessionRestoreCommand.windowsPath(from: "C:/Users/someone") == "C:/Users/someone")
-        #expect(SessionRestoreCommand.windowsPath(from: "/home/someone") == nil)
-        #expect(SessionRestoreCommand.windowsPath(from: "/") == nil)
-        #expect(SessionRestoreCommand.windowsPath(from: "") == nil)
-    }
-
-    @Test func remoteChdirRejectsRelativePaths() {
-        #expect(SessionRestoreCommand.remoteChdirCommand(path: "") == nil)
-        #expect(SessionRestoreCommand.remoteChdirCommand(path: "relative/path") == nil)
-    }
-
     // MARK: - Process argv parsing
 
     @Test func parsesProcArgs2Blob() throws {
@@ -144,10 +100,10 @@ struct SessionRestoreCommandTests {
         blob.append(contentsOf: Array("/usr/bin/ssh".utf8) + [0])
         blob.append(contentsOf: [0, 0, 0])  // alignment padding
         blob.append(contentsOf: Array("ssh".utf8) + [0])
-        blob.append(contentsOf: Array("windows".utf8) + [0])
+        blob.append(contentsOf: Array("example-host".utf8) + [0])
         blob.append(contentsOf: Array("SHELL=/bin/zsh".utf8) + [0])
 
-        #expect(ProcessCommandLine.parse(procArgs2: blob) == ["ssh", "windows"])
+        #expect(ProcessCommandLine.parse(procArgs2: blob) == ["ssh", "example-host"])
     }
 
     /// A blob cut short must produce nothing rather than a truncated command.
@@ -156,7 +112,7 @@ struct SessionRestoreCommandTests {
         withUnsafeBytes(of: CInt(3).littleEndian) { blob.append(contentsOf: $0) }
         blob.append(contentsOf: Array("/usr/bin/ssh".utf8) + [0, 0])
         blob.append(contentsOf: Array("ssh".utf8) + [0])
-        blob.append(contentsOf: Array("windows".utf8) + [0])
+        blob.append(contentsOf: Array("example-host".utf8) + [0])
 
         #expect(ProcessCommandLine.parse(procArgs2: blob) == nil)
     }

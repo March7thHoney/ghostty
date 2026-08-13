@@ -66,20 +66,8 @@ height_px: u32 = 0,
 /// The current scrolling region.
 scrolling_region: ScrollingRegion,
 
-/// The last reported pwd, if any. This is only ever set from a pwd report
-/// (OSC 7) whose hostname is local, so it is always a path on this machine.
+/// The last reported pwd, if any.
 pwd: std.ArrayList(u8),
-
-/// The last reported pwd from a non-local host, if any. This is kept
-/// separate from `pwd` because a remote path is meaningless locally: it
-/// must never be used for working directory inheritance, the proxy icon,
-/// or the title. It exists so that a surface running an SSH session can
-/// remember where it was for session restore.
-///
-/// `remote_pwd_host` is the hostname reported alongside the path. Both are
-/// cleared whenever a local pwd is reported (i.e. we left the SSH session).
-remote_pwd: std.ArrayList(u8),
-remote_pwd_host: std.ArrayList(u8),
 
 /// The title of the terminal as set by escape sequences (e.g. OSC 0/2).
 title: std.ArrayList(u8),
@@ -344,8 +332,6 @@ pub fn init(
             .right = cols - 1,
         },
         .pwd = .empty,
-        .remote_pwd = .empty,
-        .remote_pwd_host = .empty,
         .title = .empty,
         .colors = opts.colors,
         .modes = .{
@@ -365,8 +351,6 @@ pub fn deinit(self: *Terminal, alloc: Allocator) void {
     self.tabstops.deinit(alloc);
     self.screens.deinit(alloc);
     self.pwd.deinit(alloc);
-    self.remote_pwd.deinit(alloc);
-    self.remote_pwd_host.deinit(alloc);
     self.title.deinit(alloc);
     self.glyph_glossary.deinit(alloc);
     self.* = undefined;
@@ -4409,103 +4393,6 @@ pub fn getPwd(self: *const Terminal) ?[:0]const u8 {
     return self.pwd.items[0 .. self.pwd.items.len - 1 :0];
 }
 
-/// A pwd that was reported by a non-local host, along with that host.
-pub const RemotePwd = struct {
-    host: [:0]const u8,
-    path: [:0]const u8,
-};
-
-/// Set the remote pwd for the terminal. This is the pwd reported by a host
-/// that isn't us, which in practice means we're in an SSH session.
-///
-/// This deliberately does NOT touch `pwd`: a remote path doesn't exist
-/// locally, so using it for working directory inheritance or the proxy icon
-/// would be wrong. See `getRemotePwd` for the intended consumer.
-///
-/// If either value is empty then the remote pwd is cleared entirely, since
-/// a path without a host (or vice versa) isn't actionable.
-pub fn setRemotePwd(self: *Terminal, host: []const u8, path: []const u8) !void {
-    if (host.len == 0 or path.len == 0) {
-        self.clearRemotePwd();
-        return;
-    }
-
-    // We write into both lists before committing either length so that a
-    // failure partway through leaves us with no remote pwd rather than a
-    // host paired with a stale path.
-    const host_capacity = std.math.add(usize, host.len, 1) catch
-        return error.OutOfMemory;
-    const path_capacity = std.math.add(usize, path.len, 1) catch
-        return error.OutOfMemory;
-    try self.remote_pwd_host.ensureTotalCapacity(self.gpa(), host_capacity);
-    self.remote_pwd.ensureTotalCapacity(self.gpa(), path_capacity) catch |err| {
-        self.clearRemotePwd();
-        return err;
-    };
-
-    self.remote_pwd_host.items.len = host_capacity;
-    std.mem.copyForwards(u8, self.remote_pwd_host.items[0..host.len], host);
-    self.remote_pwd_host.items[host.len] = 0;
-
-    self.remote_pwd.items.len = path_capacity;
-    std.mem.copyForwards(u8, self.remote_pwd.items[0..path.len], path);
-    self.remote_pwd.items[path.len] = 0;
-}
-
-/// Clear any remote pwd. This is called when a local pwd is reported, which
-/// tells us the SSH session (or whatever else was reporting) has ended.
-pub fn clearRemotePwd(self: *Terminal) void {
-    self.remote_pwd.clearRetainingCapacity();
-    self.remote_pwd_host.clearRetainingCapacity();
-}
-
-/// Returns the remote pwd for the terminal, if any. The memory is owned by
-/// the Terminal and is not copied. It is safe until a reset, setRemotePwd,
-/// or clearRemotePwd.
-pub fn getRemotePwd(self: *const Terminal) ?RemotePwd {
-    if (self.remote_pwd.items.len == 0) return null;
-    if (self.remote_pwd_host.items.len == 0) return null;
-    return .{
-        .host = self.remote_pwd_host.items[0 .. self.remote_pwd_host.items.len - 1 :0],
-        .path = self.remote_pwd.items[0 .. self.remote_pwd.items.len - 1 :0],
-    };
-}
-
-test "Terminal: setRemotePwd roundtrip" {
-    var t = try init(testing.io, testing.allocator, .{ .cols = 5, .rows = 1 });
-    defer t.deinit(testing.allocator);
-
-    try testing.expect(t.getRemotePwd() == null);
-
-    try t.setRemotePwd("example.com", "/home/user");
-    const remote = t.getRemotePwd().?;
-    try testing.expectEqualStrings("example.com", remote.host);
-    try testing.expectEqualStrings("/home/user", remote.path);
-}
-
-test "Terminal: setRemotePwd with empty values clears" {
-    var t = try init(testing.io, testing.allocator, .{ .cols = 5, .rows = 1 });
-    defer t.deinit(testing.allocator);
-
-    try t.setRemotePwd("example.com", "/home/user");
-    try t.setRemotePwd("example.com", "");
-    try testing.expect(t.getRemotePwd() == null);
-
-    try t.setRemotePwd("example.com", "/home/user");
-    t.clearRemotePwd();
-    try testing.expect(t.getRemotePwd() == null);
-}
-
-test "Terminal: setRemotePwd does not affect pwd" {
-    var t = try init(testing.io, testing.allocator, .{ .cols = 5, .rows = 1 });
-    defer t.deinit(testing.allocator);
-
-    try t.setPwd("/local/path");
-    try t.setRemotePwd("example.com", "/remote/path");
-    try testing.expectEqualStrings("/local/path", t.getPwd().?);
-    try testing.expectEqualStrings("/remote/path", t.getRemotePwd().?.path);
-}
-
 test "Terminal: setPwd preserves a sentinel on allocation failure" {
     var failing = testing.FailingAllocator.init(testing.allocator, .{});
     const alloc = failing.allocator();
@@ -4791,8 +4678,6 @@ pub fn fullReset(self: *Terminal) void {
     self.tabstops.reset(TABSTOP_INTERVAL);
     self.previous_char = null;
     self.pwd.clearRetainingCapacity();
-    self.remote_pwd.clearRetainingCapacity();
-    self.remote_pwd_host.clearRetainingCapacity();
     self.title.clearRetainingCapacity();
     self.glyph_glossary.clearAndFree(self.gpa());
     self.status_display = .main;

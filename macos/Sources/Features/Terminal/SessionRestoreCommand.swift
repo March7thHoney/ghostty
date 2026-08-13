@@ -111,7 +111,7 @@ struct SessionRestoreCommand: Codable, Equatable {
     /// so that the surface is still a normal shell session: shell integration
     /// is injected, the working directory keeps being reported, and the tab
     /// survives the program exiting.
-    func shellCommandLine(remotePwd: Ghostty.RemotePwd? = nil) -> String? {
+    func shellCommandLine() -> String? {
         switch kind {
         case .claude:
             // We're already being restored into the saved working directory,
@@ -121,112 +121,9 @@ struct SessionRestoreCommand: Codable, Equatable {
             return "claude --continue"
 
         case .ssh:
-            return sshCommandLine(remotePwd: remotePwd)
+            // Re-run the invocation as written; where it had got to on the remote is remote state we're never told about.
+            guard !argv.isEmpty else { return nil }
+            return argv.map { Ghostty.Shell.quote($0) }.joined(separator: " ")
         }
-    }
-
-    private func sshCommandLine(remotePwd: Ghostty.RemotePwd?) -> String? {
-        guard let program = argv.first else { return nil }
-        let args = Array(argv.dropFirst())
-
-        let plain = ([program] + args).map { Ghostty.Shell.quote($0) }.joined(separator: " ")
-
-        // Only worth doing anything clever if we know where the remote session
-        // was, and only if the user's own invocation didn't already carry a
-        // remote command: appending to that would change what they asked for.
-        guard let remotePwd, !remotePwd.path.isEmpty else { return plain }
-        guard !Self.hasRemoteCommand(args: args) else { return plain }
-        guard let remoteCommand = Self.remoteChdirCommand(path: remotePwd.path) else { return plain }
-
-        // `-t` goes up front, where it's unambiguously an ssh option, and the
-        // remote command goes last, after the destination.
-        //
-        // `RemoteCommand=none` is required, not cosmetic: if the user's ssh
-        // config sets a RemoteCommand for this host, ssh refuses to also take
-        // one on the command line ("Cannot execute command-line and remote
-        // command") and the reconnect fails outright. Overriding it is safe
-        // for the shape of RemoteCommand people actually configure — a shell
-        // to log into — because that is exactly what we launch below, just
-        // pointed at the directory they left off in.
-        let parts = [program, "-t", "-o", "RemoteCommand=none"] + args + [remoteCommand]
-        return parts.map { Ghostty.Shell.quote($0) }.joined(separator: " ")
-    }
-
-    /// ssh options that consume the following argument.
-    private static let sshOptionsWithArgument: Set<Character> = [
-        "B", "b", "c", "D", "E", "e", "F", "I", "i", "J", "L", "l",
-        "m", "O", "o", "P", "p", "Q", "R", "S", "W", "w",
-    ]
-
-    /// Whether an ssh argument list already specifies a command to run on the
-    /// remote host (i.e. there's a non-option argument after the destination).
-    static func hasRemoteCommand(args: [String]) -> Bool {
-        var sawDestination = false
-        var index = 0
-
-        while index < args.count {
-            let arg = args[index]
-            index += 1
-
-            guard arg.hasPrefix("-"), arg != "-" else {
-                // The first non-option is the destination; anything after it
-                // is the remote command. Note ssh keeps parsing options after
-                // the destination, so we can't stop at the first one.
-                if sawDestination { return true }
-                sawDestination = true
-                continue
-            }
-
-            // Short options cluster ("-tv"), and the first one that takes an
-            // argument swallows the rest of the cluster or the next argument.
-            let chars = Array(arg.dropFirst())
-            var position = 0
-            while position < chars.count {
-                let flag = chars[position]
-                position += 1
-                guard sshOptionsWithArgument.contains(flag) else { continue }
-                // If the flag ends the cluster its value is the next argument,
-                // otherwise the rest of the cluster is the value.
-                if position == chars.count { index += 1 }
-                break
-            }
-        }
-
-        return false
-    }
-
-    /// Build the remote command that puts a reconnected session back in the
-    /// directory it was in. Returns nil if we can't tell what shape the path is.
-    ///
-    /// This is best effort by nature: we only ever know the remote directory if
-    /// the remote shell reports it (OSC 7), which most don't do out of the box.
-    static func remoteChdirCommand(path: String) -> String? {
-        guard !path.isEmpty else { return nil }
-
-        if let windowsPath = windowsPath(from: path) {
-            // Windows remotes land in PowerShell, where `cd && exec` is
-            // meaningless. Re-launch PowerShell so the session stays interactive.
-            let escaped = windowsPath.replacingOccurrences(of: "'", with: "''")
-            return "powershell -NoExit -Command \"Set-Location -LiteralPath '\(escaped)'\""
-        }
-
-        guard path.hasPrefix("/") else { return nil }
-        // `exec` so the login shell replaces us rather than nesting, and the
-        // `${SHELL:-/bin/sh}` fallback covers accounts with no SHELL set.
-        return "cd \(Ghostty.Shell.quote(path)) && exec \"${SHELL:-/bin/sh}\" -l"
-    }
-
-    /// Recognize a Windows path as reported over OSC 7, which arrives with a
-    /// leading slash from the URL: `/C:/Users/someone`.
-    static func windowsPath(from path: String) -> String? {
-        var candidate = Substring(path)
-        if candidate.hasPrefix("/") { candidate = candidate.dropFirst() }
-
-        // A drive letter followed by a colon is the only reliable signal.
-        var iterator = candidate.makeIterator()
-        guard let drive = iterator.next(), drive.isLetter else { return nil }
-        guard iterator.next() == ":" else { return nil }
-
-        return String(candidate)
     }
 }

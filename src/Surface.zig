@@ -1085,23 +1085,6 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             );
         },
 
-        .remote_pwd_change => |w| {
-            defer w.deinit();
-
-            var stack = std.heap.stackFallback(512, self.alloc);
-            const alloc = stack.get();
-            const host = try alloc.dupeZ(u8, w.host.slice());
-            defer alloc.free(host);
-            const path = try alloc.dupeZ(u8, w.pwd.slice());
-            defer alloc.free(path);
-
-            _ = try self.rt_app.performAction(
-                .{ .surface = self },
-                .remote_pwd,
-                .{ .host = host, .pwd = path },
-            );
-        },
-
         .close => self.close(),
 
         .child_exited => |v| self.childExited(v),

@@ -2308,11 +2308,9 @@ keybind: Keybinds = .{},
 /// an `ssh` session reconnects, and a Claude Code session resumes with
 /// `claude --continue`. Nothing else is re-run, because replaying an
 /// arbitrary command could repeat something destructive; every other
-/// terminal simply reopens in its saved directory.
-///
-/// If the remote host reported its working directory (OSC 7), a restored
-/// `ssh` session also returns to that directory. Most remote shells don't
-/// report it without configuration.
+/// terminal simply reopens in its saved directory. A restored `ssh` session
+/// reconnects to the same host, but not to the directory it was in on that
+/// host, which is remote state Ghostty is not told about.
 @"window-save-state": WindowSaveState = .default,
 
 /// Resize the window in discrete increments of the focused surface's cell size.
