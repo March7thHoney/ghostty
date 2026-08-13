@@ -6,7 +6,12 @@ import AppKit
 struct TerminalRestorableTests {
     @Test
     func areYouForgettingToAddMigrationTests() {
-        #expect(TerminalRestorableState.version == 7)
+        // v8 added `restoreCommand` and `remotePwd` to the per-surface
+        // payload. Both are optional and decoded with `decodeIfPresent`, and
+        // neither touches `InternalState`, so the v5/v7 fixtures below still
+        // exercise every field that changed shape. The detection and replay
+        // logic behind the new fields is covered by SessionRestoreCommandTests.
+        #expect(TerminalRestorableState.version == 8)
         #expect(TerminalRestorableState.minimumVersion == 5)
 
         #expect(QuickTerminalRestorableState.version == 1)

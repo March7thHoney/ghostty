@@ -745,6 +745,9 @@ pub const Application = extern struct {
 
             .pwd => Action.pwd(target, value),
 
+            // Only consumed by session restore, which is macOS-only today.
+            .remote_pwd => return false,
+
             .present_terminal => return Action.presentTerminal(target),
 
             .progress_report => return Action.progressReport(target, value),

@@ -927,6 +927,10 @@ class BaseTerminalController: NSWindowController,
     }
 
     func pwdDidChange(to: URL?) {
+        // Session restore reopens each surface in its last directory, so a
+        // directory change is a change worth persisting.
+        TerminalSessionStore.shared.setNeedsSave()
+
         guard let window else { return }
 
         if derivedConfig.macosTitlebarProxyIcon == .visible {

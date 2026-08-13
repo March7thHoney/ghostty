@@ -1857,6 +1857,8 @@ extension Ghostty {
             case uuid
             case title
             case isUserSetTitle
+            case restoreCommand
+            case remotePwd
         }
 
         required convenience init(from decoder: Decoder) throws {
@@ -1873,6 +1875,21 @@ extension Ghostty {
             config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
             let savedTitle = try container.decodeIfPresent(String.self, forKey: .title)
             let isUserSetTitle = try container.decodeIfPresent(Bool.self, forKey: .isUserSetTitle) ?? false
+
+            // If the surface was running something we know how to bring back,
+            // type it into the restored shell. This is deliberately input
+            // rather than the surface's command: the surface stays a normal
+            // shell session, so shell integration is still injected, the
+            // working directory keeps being reported, and the tab outlives
+            // the program. Setting `command` would also mark the window
+            // unrestorable, so the session could only ever be restored once.
+            let restoreCommand = try container.decodeIfPresent(
+                SessionRestoreCommand.self, forKey: .restoreCommand)
+            let remotePwd = try container.decodeIfPresent(
+                Ghostty.RemotePwd.self, forKey: .remotePwd)
+            if let line = restoreCommand?.shellCommandLine(remotePwd: remotePwd) {
+                config.initialInput = "\(line)\n"
+            }
 
             self.init(app, baseConfig: config, uuid: uuid)
 
@@ -1892,6 +1909,20 @@ extension Ghostty {
             try container.encode(id.uuidString, forKey: .uuid)
             try container.encode(title, forKey: .title)
             try container.encode(titleFromTerminal != nil, forKey: .isUserSetTitle)
+
+            // Resolved fresh every time rather than cached, because the whole
+            // point is what's running *now*: if the user quit Claude and went
+            // back to their shell, restoring Claude would be wrong.
+            try container.encodeIfPresent(sessionRestoreCommand, forKey: .restoreCommand)
+            try container.encodeIfPresent(remotePwd, forKey: .remotePwd)
+        }
+
+        /// The program running in this surface that session restore knows how
+        /// to bring back, if any. Nil for a surface sitting at a shell prompt.
+        var sessionRestoreCommand: SessionRestoreCommand? {
+            guard let pid = surfaceModel?.foregroundPID,
+                  let pid32 = pid_t(exactly: pid) else { return nil }
+            return SessionRestoreCommand.detect(foregroundPID: pid32)
         }
     }
 }

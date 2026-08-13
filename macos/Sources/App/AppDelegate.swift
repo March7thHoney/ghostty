@@ -229,6 +229,18 @@ class AppDelegate: NSObject,
         // Initial config loading
         ghosttyConfigDidChange(config: ghostty.config)
 
+        // Restore the previous session, if we have one and AppKit didn't
+        // already restore something of its own. This runs here rather than on
+        // first activation so that a background launch still gets its windows
+        // back, and so the windows are up before the app is shown. If it
+        // restores nothing, `applicationDidBecomeActive` opens the usual
+        // initial window.
+        if TerminalController.all.isEmpty {
+            undoManager.disableUndoRegistration()
+            TerminalSessionStore.shared.restore()
+            undoManager.enableUndoRegistration()
+        }
+
         // Start our update checker.
         updateController.startUpdater()
 
@@ -380,6 +392,21 @@ class AppDelegate: NSObject,
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Snapshot before anything starts tearing down. This is the only
+        // moment where the windows are all still up AND their child processes
+        // are still alive, which is what tells us that a tab was sitting in an
+        // SSH session or a Claude Code conversation. Saves are then suspended
+        // so that windows closing on the way out don't replace this with an
+        // empty snapshot; the cancel paths in `terminate()` resume them.
+        let reply = terminateReply(sender)
+        if reply != .terminateCancel {
+            TerminalSessionStore.shared.saveImmediately()
+            TerminalSessionStore.shared.suspendSaves()
+        }
+        return reply
+    }
+
+    private func terminateReply(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let windows = NSApplication.shared.windows
         if windows.isEmpty { return .terminateNow }
 
@@ -438,7 +465,14 @@ class AppDelegate: NSObject,
         // but I haven't seen it happen in releases. I'm unsure why.
         guard applicationHasBecomeActive else { return true }
 
-        // No visible windows, open a new one.
+        // No visible windows. Closing every window doesn't quit Ghostty by
+        // default, so reopening from the Dock lands here rather than going
+        // through a launch. From the user's point of view they closed their
+        // terminals and opened Ghostty again, which should give them their
+        // session back exactly as a relaunch would.
+        if TerminalSessionStore.shared.restore() { return false }
+
+        // Nothing to restore, open a new one.
         _ = TerminalController.newWindow(ghostty)
         return false
     }
@@ -1329,6 +1363,8 @@ extension AppDelegate {
                 if [.OK, .alertFirstButtonReturn].contains(response) {
                     await NSApp.reply(toApplicationShouldTerminate: true)
                 } else {
+                    // We're staying alive, so start tracking session state again.
+                    await TerminalSessionStore.shared.resumeSaves()
                     await NSApp.reply(toApplicationShouldTerminate: false)
                 }
             }
@@ -1369,6 +1405,10 @@ extension AppDelegate {
                     await controller.window?.close()
                     continue
                 } else {
+                    // We're staying alive, so start tracking session state
+                    // again. Note the windows already reviewed are closed and
+                    // therefore correctly absent from future snapshots.
+                    await TerminalSessionStore.shared.resumeSaves()
                     await NSApp.reply(toApplicationShouldTerminate: false)
                     // Cancel the review
                     return

@@ -85,6 +85,13 @@ pub const Message = union(enum) {
     /// The terminal has reported a change in the working directory.
     pwd_change: WriteReq,
 
+    /// The terminal has reported a working directory belonging to a host
+    /// that isn't us, which in practice means an SSH session. This is
+    /// reported separately from `pwd_change` because the path doesn't exist
+    /// locally: it must not be used for working directory inheritance or
+    /// the proxy icon. An empty host clears the remote working directory.
+    remote_pwd_change: RemotePwdChange,
+
     /// The terminal encountered a bell character.
     ring_bell,
 
@@ -112,6 +119,16 @@ pub const Message = union(enum) {
         csi_21_t,
 
         // This enum is a placeholder for future title styles.
+    };
+
+    pub const RemotePwdChange = struct {
+        host: WriteReq,
+        pwd: WriteReq,
+
+        pub fn deinit(self: RemotePwdChange) void {
+            self.host.deinit();
+            self.pwd.deinit();
+        }
     };
 
     pub const ChildExited = extern struct {

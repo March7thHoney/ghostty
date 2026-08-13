@@ -10,8 +10,15 @@ extension Ghostty {
         let id: UUID
 
         // The current pwd of the surface as defined by the pty. This can be
-        // changed with escape codes.
+        // changed with escape codes. This is always a local path.
         @Published var pwd: String?
+
+        // The working directory most recently reported by a host that isn't
+        // us, i.e. an SSH session. This path does NOT exist locally, so it
+        // must never be used anywhere a real path is expected (the proxy
+        // icon, inheriting a working directory). It exists so that session
+        // restore can reconnect where the user left off.
+        @Published var remotePwd: RemotePwd?
 
         // The cell size of this surface. This is set by the core when the
         // surface is first created and any time the cell size changes (i.e.
@@ -110,6 +117,17 @@ extension Ghostty {
         func focusDidChange(_ focused: Bool) {}
 
         func sizeDidChange(_ size: CGSize) {}
+    }
+}
+
+// MARK: Remote Pwd
+
+extension Ghostty {
+    /// A working directory reported by a non-local host, along with the host
+    /// that reported it. See `OSSurfaceView.remotePwd`.
+    struct RemotePwd: Codable, Equatable {
+        let host: String
+        let path: String
     }
 }
 

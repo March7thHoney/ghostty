@@ -2293,6 +2293,26 @@ keybind: Keybinds = .{},
 /// The default value is `default`.
 ///
 /// This is currently only supported on macOS. This has no effect on Linux.
+///
+/// On macOS, any value other than `never` additionally enables Ghostty's own
+/// session snapshot, which is kept alongside the system mechanism above and
+/// used whenever the system restores nothing (for example after a forced
+/// quit). The snapshot records the windows, tabs, and splits that were open
+/// when Ghostty exited, along with each terminal's working directory. Tabs
+/// you closed while others remained open are not restored, but closing your
+/// last window does not discard the session: the most recent non-empty
+/// snapshot is kept so that closing everything and then quitting still
+/// restores on the next launch.
+///
+/// The snapshot also restores a small, fixed set of long-running programs:
+/// an `ssh` session reconnects, and a Claude Code session resumes with
+/// `claude --continue`. Nothing else is re-run, because replaying an
+/// arbitrary command could repeat something destructive; every other
+/// terminal simply reopens in its saved directory.
+///
+/// If the remote host reported its working directory (OSC 7), a restored
+/// `ssh` session also returns to that directory. Most remote shells don't
+/// report it without configuration.
 @"window-save-state": WindowSaveState = .default,
 
 /// Resize the window in discrete increments of the focused surface's cell size.

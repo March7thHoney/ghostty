@@ -524,6 +524,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_PWD:
                 pwdChanged(app, target: target, v: action.action.pwd)
 
+            case GHOSTTY_ACTION_REMOTE_PWD:
+                remotePwdChanged(app, target: target, v: action.action.remote_pwd)
+
             case GHOSTTY_ACTION_OPEN_CONFIG:
                 openConfig(app)
 
@@ -1786,6 +1789,32 @@ extension Ghostty {
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 guard let pwd = String(cString: v.pwd!, encoding: .utf8) else { return }
                 surfaceView.pwd = pwd
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func remotePwdChanged(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_remote_pwd_s) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("remote pwd change does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let host = v.host.flatMap({ String(cString: $0, encoding: .utf8) }),
+                      let path = v.pwd.flatMap({ String(cString: $0, encoding: .utf8) }),
+                      !host.isEmpty, !path.isEmpty else {
+                    // An empty host or path means we left the remote session.
+                    surfaceView.remotePwd = nil
+                    return
+                }
+                surfaceView.remotePwd = .init(host: host, path: path)
 
             default:
                 assertionFailure()

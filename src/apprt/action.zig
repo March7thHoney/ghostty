@@ -357,6 +357,14 @@ pub const Action = union(Key) {
     /// Move a tab to a new window.
     move_tab_to_new_window,
 
+    /// The target terminal reported a working directory on a host that
+    /// isn't us, which in practice means an SSH session. The path is not
+    /// valid locally, so this must not be used for anything that expects a
+    /// real local path (proxy icons, inheriting a working directory). It
+    /// exists so a surface can remember where a remote session was for the
+    /// purposes of restoring it later. An empty host clears it.
+    remote_pwd: RemotePwd,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -428,6 +436,7 @@ pub const Action = union(Key) {
         readonly,
         copy_title_to_clipboard,
         move_tab_to_new_window,
+        remote_pwd,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -782,6 +791,37 @@ pub const Pwd = struct {
         writer: *std.Io.Writer,
     ) !void {
         try writer.print("{s}{{ {s} }}", .{ @typeName(@This()), value.pwd });
+    }
+};
+
+pub const RemotePwd = struct {
+    host: [:0]const u8,
+    pwd: [:0]const u8,
+
+    // Sync with: ghostty_action_remote_pwd_s
+    pub const C = extern struct {
+        host: [*:0]const u8,
+        pwd: [*:0]const u8,
+    };
+
+    pub fn cval(self: RemotePwd) C {
+        return .{
+            .host = self.host.ptr,
+            .pwd = self.pwd.ptr,
+        };
+    }
+
+    pub fn format(
+        value: @This(),
+        comptime _: []const u8,
+        _: std.fmt.Options,
+        writer: *std.Io.Writer,
+    ) !void {
+        try writer.print("{s}{{ {s}:{s} }}", .{
+            @typeName(@This()),
+            value.host,
+            value.pwd,
+        });
     }
 };
 

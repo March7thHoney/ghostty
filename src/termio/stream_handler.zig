@@ -1042,8 +1042,16 @@ pub const StreamHandler = struct {
                 assert(!self.seen_title);
             }
 
+            // A reset means we no longer know where we are, remotely or
+            // otherwise, so drop any remote pwd we were holding too.
+            self.terminal.clearRemotePwd();
+
             // Report the change.
             self.surfaceMessageWriter(.{ .pwd_change = .{ .stable = "" } });
+            self.surfaceMessageWriter(.{ .remote_pwd_change = .{
+                .host = .{ .stable = "" },
+                .pwd = .{ .stable = "" },
+            } });
             return;
         }
 
@@ -1089,10 +1097,6 @@ pub const StreamHandler = struct {
                 return;
             },
         };
-        if (!host_valid) {
-            log.warn("OSC 7 host ({s}) must be local", .{host.bytes});
-            return;
-        }
 
         // We need the raw path, which might require unescaping. We try to
         // avoid making any heap allocations by using the stack first.
@@ -1101,8 +1105,27 @@ pub const StreamHandler = struct {
         defer arena_alloc.deinit();
         const path = try uri.path.toRawMaybeAlloc(stack_alloc.get());
 
+        // A non-local host means we're almost certainly inside an SSH
+        // session. We remember the path so that session restore can return
+        // to it, but we deliberately keep it out of `pwd`: the path doesn't
+        // exist on this machine, so using it for the proxy icon, the title,
+        // or working directory inheritance would all be wrong.
+        if (!host_valid) {
+            log.debug("terminal remote pwd: host={s} path={s}", .{ host.bytes, path });
+            try self.terminal.setRemotePwd(host.bytes, path);
+            self.reportRemotePwd(host.bytes, path);
+            return;
+        }
+
         log.debug("terminal pwd: {s}", .{path});
         try self.terminal.setPwd(path);
+
+        // A local pwd means we're no longer in whatever remote session was
+        // reporting, so any remote pwd we were holding is stale now.
+        if (self.terminal.getRemotePwd() != null) {
+            self.terminal.clearRemotePwd();
+            self.reportRemotePwd("", "");
+        }
 
         // Report it to the surface. If creating our write request fails
         // then we just ignore it.
@@ -1117,6 +1140,26 @@ pub const StreamHandler = struct {
             try self.windowTitle(path);
             self.seen_title = false;
         }
+    }
+
+    /// Notify the surface of a remote pwd change. Failures are logged and
+    /// dropped: a missing remote pwd only costs us a session restore hint.
+    fn reportRemotePwd(self: *StreamHandler, host: []const u8, path: []const u8) void {
+        const host_req = apprt.surface.Message.WriteReq.init(self.alloc, host) catch |err| {
+            log.warn("error notifying surface of remote pwd change err={}", .{err});
+            return;
+        };
+
+        const pwd_req = apprt.surface.Message.WriteReq.init(self.alloc, path) catch |err| {
+            log.warn("error notifying surface of remote pwd change err={}", .{err});
+            host_req.deinit();
+            return;
+        };
+
+        self.surfaceMessageWriter(.{ .remote_pwd_change = .{
+            .host = host_req,
+            .pwd = pwd_req,
+        } });
     }
 
     fn colorOperation(

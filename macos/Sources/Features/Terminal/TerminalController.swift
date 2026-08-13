@@ -53,7 +53,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// This is set to false by init if the window managed by this controller should not be restorable.
     /// For example, terminals executing custom scripts are not restorable.
-    private var restorable: Bool = true
+    private(set) var restorable: Bool = true
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig
@@ -174,6 +174,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Whenever our surface tree changes in any way (new split, close split, etc.)
         // we want to invalidate our state.
         invalidateRestorableState()
+        TerminalSessionStore.shared.setNeedsSave()
 
         // Update our zoom state
         if let window = window as? TerminalWindow {
@@ -694,6 +695,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
+        // Capture the session while this tab's process is still alive. The
+        // tabs that survive are re-snapshotted after the close, so this only
+        // preserves what would otherwise be lost.
+        TerminalSessionStore.shared.saveImmediately()
+
         cancelPendingInitialPresentation()
 
         // Undo
@@ -813,6 +819,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// confirmation. This will setup proper undo state so the action can be undone.
     func closeWindowImmediately() {
         guard let window = window else { return }
+
+        // Capture the session before anything is torn down. Below we clear
+        // each surface tree before closing, which kills the child processes,
+        // and by the time `windowWillClose` runs there is nothing left to
+        // observe. Without this, closing a window would forget whatever was
+        // running in it.
+        TerminalSessionStore.shared.saveImmediately()
 
         cancelPendingInitialPresentation()
 
@@ -1204,6 +1217,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.windowWillClose(notification)
         cancelPendingInitialPresentation()
         self.relabelTabs()
+
+        // A closed tab shouldn't come back on the next launch, and this window
+        // is still in NSApp.windows right now, so the store has to be told
+        // about it explicitly.
+        TerminalSessionStore.shared.willClose(self)
 
         // If we remove a window, we reset the cascade point to the key window so that
         // the next window cascade's from that one.

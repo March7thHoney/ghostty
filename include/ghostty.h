@@ -690,6 +690,15 @@ typedef struct {
   const char* pwd;
 } ghostty_action_pwd_s;
 
+// apprt.action.RemotePwd.C
+//
+// A working directory reported by a host that isn't us, i.e. an SSH
+// session. The path is not valid on this machine. An empty host clears it.
+typedef struct {
+  const char* host;
+  const char* pwd;
+} ghostty_action_remote_pwd_s;
+
 // apprt.action.OpenConfig
 typedef enum {
   // Open the config in the OS default editor.
@@ -972,6 +981,7 @@ typedef enum {
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
+  GHOSTTY_ACTION_REMOTE_PWD,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -1015,6 +1025,7 @@ typedef union {
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
   ghostty_action_open_config_e open_config;
+  ghostty_action_remote_pwd_s remote_pwd;
 } ghostty_action_u;
 
 typedef struct {
