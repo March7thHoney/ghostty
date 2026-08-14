@@ -14,6 +14,8 @@ struct ClaudeLiveSession: Equatable {
     let sessionID: String
     let cwd: String
     let name: String?
+    /// True when the registry name is an auto-derived placeholder like "myproject-5c".
+    let nameIsDerived: Bool
     let activity: Activity
     let updatedAt: Date
 }
@@ -100,6 +102,7 @@ final class ClaudeLiveSessionMonitor: ObservableObject {
         let cwd: String
         let status: String?
         let name: String?
+        let nameSource: String?
         let updatedAt: Double?
     }
 
@@ -120,6 +123,7 @@ final class ClaudeLiveSessionMonitor: ObservableObject {
                     sessionID: entry.sessionId,
                     cwd: entry.cwd,
                     name: entry.name,
+                    nameIsDerived: entry.nameSource == "derived",
                     activity: entry.status == "busy" ? .busy : .idle,
                     updatedAt: Date(timeIntervalSince1970: (entry.updatedAt ?? 0) / 1000))
             }

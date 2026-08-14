@@ -297,14 +297,19 @@ private struct ClaudeSidebarSessionRow: View {
         return isHovering ? Color.primary.opacity(0.08) : Color.clear
     }
 
+    /// Explicit registry name > transcript title > derived registry name as a last resort.
+    private var rowTitle: String {
+        if let live, let name = live.name, !live.nameIsDerived { return name }
+        return session.title ?? live?.name ?? "Untitled session"
+    }
+
     var body: some View {
         Button {
             ClaudeSidebarCoordinator.openOrFocus(session: session, from: hostWindow())
         } label: {
             HStack(spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
-                    // A running session's registry name is fresher than anything in the transcript.
-                    Text(live?.name ?? session.title ?? "Untitled session")
+                    Text(rowTitle)
                         .font(.system(size: 13, weight: isOpen ? .medium : .regular))
                         .lineLimit(1)
 
