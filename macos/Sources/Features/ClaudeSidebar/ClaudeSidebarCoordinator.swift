@@ -38,6 +38,7 @@ enum ClaudeSidebarCoordinator {
         else { return }
         ClaudeSidebarState.shared.notePendingSpawn(
             sessionID: session.sessionID, controller: controller)
+        ClaudeSidebarState.shared.pinProject(session.cwd)
     }
 
     /// Open a new tab running a fresh Claude conversation in a directory.
@@ -47,7 +48,50 @@ enum ClaudeSidebarCoordinator {
             alertMissingDirectory(cwd, in: window)
             return
         }
-        _ = spawnTab(cwd: cwd, input: "claude", from: window)
+        guard spawnTab(cwd: cwd, input: "claude", from: window) != nil else { return }
+        ClaudeSidebarState.shared.pinProject(cwd)
+    }
+
+    /// Ask for a directory and add it to the sidebar.
+    static func addProject(from window: NSWindow?) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Add"
+
+        let handle: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory
+                ?? url.hasDirectoryPath
+            let dir = isDirectory ? url : url.deletingLastPathComponent()
+            ClaudeSidebarState.shared.pinProject(dir.path(percentEncoded: false))
+        }
+
+        if let window {
+            panel.beginSheetModal(for: window, completionHandler: handle)
+        } else {
+            handle(panel.runModal())
+        }
+    }
+
+    /// Show the project directory in Finder.
+    static func revealInFinder(cwd: String) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: cwd)])
+    }
+
+    /// VS Code's location, nil when it isn't installed.
+    static var vsCodeURL: URL? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode")
+    }
+
+    /// Open the project directory in VS Code.
+    static func openInVSCode(cwd: String) {
+        guard let appURL = vsCodeURL else { return }
+        NSWorkspace.shared.open(
+            [URL(fileURLWithPath: cwd, isDirectory: true)],
+            withApplicationAt: appURL,
+            configuration: NSWorkspace.OpenConfiguration())
     }
 
     // MARK: - Helpers

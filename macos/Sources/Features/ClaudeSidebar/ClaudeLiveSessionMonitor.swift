@@ -37,6 +37,17 @@ final class ClaudeLiveSessionMonitor: ObservableObject {
     @Published private(set) var bySessionID: [String: ClaudeLiveSession] = [:]
     @Published private(set) var byPID: [pid_t: ClaudeLiveSession] = [:]
 
+    /// Sessions running in one of this app's own tabs, as opposed to some
+    /// other terminal: a session whose pid is the foreground process of one
+    /// of our surfaces. These get the sidebar's "open" highlight.
+    @Published private(set) var openInAppSessionIDs: Set<String> = []
+
+    /// The previous poll's open set, for edge-triggered pinning: a project
+    /// is pinned when a session in it *becomes* open, never continuously —
+    /// otherwise removing a project while its session is open would undo
+    /// itself two seconds later.
+    private var previouslyOpenSessionIDs: Set<String> = []
+
     private var pollTask: Task<Void, Never>?
 
     /// Begin polling. Safe to call repeatedly.
@@ -54,8 +65,34 @@ final class ClaudeLiveSessionMonitor: ObservableObject {
 
     private func apply(_ sessions: [ClaudeLiveSession]) {
         let newBySessionID = Dictionary(sessions.map { ($0.sessionID, $0) }) { _, last in last }
+
+        // Which of these sessions are running in our own tabs.
+        var foregroundPIDs: Set<pid_t> = []
+        for controller in TerminalController.all {
+            for surface in controller.surfaceTree {
+                if let pid = surface.surfaceModel?.foregroundPID,
+                   let pid32 = pid_t(exactly: pid) {
+                    foregroundPIDs.insert(pid32)
+                }
+            }
+        }
+        let newOpen = Set(sessions.filter { foregroundPIDs.contains($0.pid) }.map(\.sessionID))
+
+        // A session becoming open earns its project a permanent place in
+        // the sidebar. This covers sessions the user starts by hand in a
+        // tab just as well as ones the sidebar spawned.
+        for sessionID in newOpen.subtracting(previouslyOpenSessionIDs) {
+            if let live = newBySessionID[sessionID] {
+                ClaudeSidebarState.shared.pinProject(live.cwd)
+            }
+        }
+        previouslyOpenSessionIDs = newOpen
+
         // Publish only on real change so an idle system doesn't invalidate
         // SwiftUI observers every poll.
+        if newOpen != openInAppSessionIDs {
+            openInAppSessionIDs = newOpen
+        }
         guard newBySessionID != bySessionID else { return }
         bySessionID = newBySessionID
         byPID = Dictionary(sessions.map { ($0.pid, $0) }) { _, last in last }

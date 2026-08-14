@@ -35,18 +35,34 @@ struct ClaudeSidebarView: View {
     let hostWindow: () -> NSWindow?
     let currentPwd: () -> String?
 
+    /// The projects the sidebar shows: only pinned ones, in the index's
+    /// recency order, plus pinned directories that have no transcripts yet
+    /// (for example, a project added by hand) at the end.
+    private var displayProjects: [ClaudeProject] {
+        let pinned = state.pinnedProjects
+        guard !pinned.isEmpty else { return [] }
+        let pinnedSet = Set(pinned)
+        var projects = index.projects.filter { pinnedSet.contains($0.cwd) }
+        let present = Set(projects.map(\.cwd))
+        for cwd in pinned where !present.contains(cwd) {
+            projects.append(ClaudeProject(cwd: cwd, sessions: []))
+        }
+        return projects
+    }
+
     var body: some View {
         let scheme: ColorScheme = NSColor(backgroundColor).isLightColor ? .light : .dark
+        let projects = displayProjects
 
         VStack(spacing: 0) {
             header
             Rectangle()
                 .fill(dividerColor)
                 .frame(height: 1)
-            if index.projects.isEmpty {
+            if projects.isEmpty {
                 emptyState
             } else {
-                sessionList
+                sessionList(projects)
             }
         }
         .frame(width: Self.width)
@@ -67,6 +83,15 @@ struct ClaudeSidebarView: View {
                 .foregroundStyle(.secondary)
 
             Spacer()
+
+            Button {
+                ClaudeSidebarCoordinator.addProject(from: hostWindow())
+            } label: {
+                Image(systemName: "folder.badge.plus")
+                    .font(.system(size: 13))
+            }
+            .buttonStyle(.borderless)
+            .help("Add a project to the sidebar")
 
             Button {
                 ClaudeSidebarCoordinator.newConversation(
@@ -92,22 +117,31 @@ struct ClaudeSidebarView: View {
     }
 
     private var emptyState: some View {
-        VStack {
+        VStack(spacing: 6) {
             Spacer()
-            Text("No Claude Code sessions yet")
+            Text("No projects yet")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
+            Text("Open a Claude session or add a project")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            Button("Add Project") {
+                ClaudeSidebarCoordinator.addProject(from: hostWindow())
+            }
+            .controlSize(.small)
+            .padding(.top, 4)
             Spacer()
         }
         .frame(maxWidth: .infinity)
+        .padding(.horizontal, 12)
     }
 
-    private var sessionList: some View {
+    private func sessionList(_ projects: [ClaudeProject]) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 1) {
-                ForEach(index.projects) { project in
-                    if project.id != index.projects.first?.id {
+                ForEach(projects) { project in
+                    if project.id != projects.first?.id {
                         Rectangle()
                             .fill(dividerColor)
                             .frame(height: 1)
@@ -115,6 +149,14 @@ struct ClaudeSidebarView: View {
                     }
 
                     ClaudeSidebarProjectHeader(project: project, hostWindow: hostWindow)
+
+                    if project.sessions.isEmpty {
+                        Text("No sessions yet")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                    }
 
                     let expanded = state.expandedProjects.contains(project.cwd)
                     let visible = expanded
@@ -125,6 +167,7 @@ struct ClaudeSidebarView: View {
                         ClaudeSidebarSessionRow(
                             session: session,
                             live: monitor.bySessionID[session.sessionID],
+                            isOpen: monitor.openInAppSessionIDs.contains(session.sessionID),
                             hostWindow: hostWindow)
                     }
 
@@ -238,6 +281,19 @@ private struct ClaudeSidebarProjectHeader: View {
         .padding(.bottom, 4)
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
+        .contextMenu {
+            Button("Reveal in Finder") {
+                ClaudeSidebarCoordinator.revealInFinder(cwd: project.cwd)
+            }
+            Button("Open in VS Code") {
+                ClaudeSidebarCoordinator.openInVSCode(cwd: project.cwd)
+            }
+            .disabled(ClaudeSidebarCoordinator.vsCodeURL == nil)
+            Divider()
+            Button("Remove from Sidebar") {
+                ClaudeSidebarState.shared.unpinProject(project.cwd)
+            }
+        }
     }
 }
 
@@ -245,9 +301,21 @@ private struct ClaudeSidebarProjectHeader: View {
 private struct ClaudeSidebarSessionRow: View {
     let session: ClaudeTranscriptSummary
     let live: ClaudeLiveSession?
+
+    /// Whether the session is open in one of this app's tabs, which gives
+    /// the row the accent "open" highlight.
+    let isOpen: Bool
+
     let hostWindow: () -> NSWindow?
 
     @State private var isHovering = false
+
+    private var rowBackground: Color {
+        if isOpen {
+            return Color.accentColor.opacity(isHovering ? 0.3 : 0.2)
+        }
+        return isHovering ? Color.secondary.opacity(0.2) : Color.clear
+    }
 
     /// Ghostty's UI is English regardless of system locale.
     private static let relativeFormatter: RelativeDateTimeFormatter = {
@@ -288,7 +356,7 @@ private struct ClaudeSidebarSessionRow: View {
         .buttonStyle(.plain)
         .background(
             RoundedRectangle(cornerRadius: 5)
-                .fill(isHovering ? Color.secondary.opacity(0.2) : Color.clear))
+                .fill(rowBackground))
         .onHover { isHovering = $0 }
     }
 }

@@ -9,10 +9,11 @@ final class ClaudeSidebarState: ObservableObject {
     static let shared = ClaudeSidebarState()
 
     private static let visibleKey = "ClaudeSidebarVisible"
+    private static let pinnedKey = "ClaudePinnedProjects"
 
     /// Whether the sidebar is expanded. Defaults to visible.
     @Published var isVisible: Bool {
-        didSet { UserDefaults.standard.set(isVisible, forKey: Self.visibleKey) }
+        didSet { UserDefaults.ghostty.set(isVisible, forKey: Self.visibleKey) }
     }
 
     /// Projects (by cwd) showing all of their sessions instead of the first
@@ -20,8 +21,41 @@ final class ClaudeSidebarState: ObservableObject {
     /// not persisted.
     @Published var expandedProjects: Set<String> = []
 
+    /// The working directories the sidebar shows, in the order they were
+    /// added. The sidebar starts empty; a project earns its place by having
+    /// a session opened, a conversation started, or being added by hand —
+    /// and then stays until removed.
+    @Published private(set) var pinnedProjects: [String] {
+        didSet { UserDefaults.ghostty.set(pinnedProjects, forKey: Self.pinnedKey) }
+    }
+
     private init() {
-        isVisible = UserDefaults.standard.object(forKey: Self.visibleKey) as? Bool ?? true
+        isVisible = UserDefaults.ghostty.object(forKey: Self.visibleKey) as? Bool ?? true
+        pinnedProjects = UserDefaults.ghostty.array(forKey: Self.pinnedKey) as? [String] ?? []
+    }
+
+    /// Add a project to the sidebar. Paths are normalized (no trailing
+    /// slash) so directories arriving from the session registry, transcripts,
+    /// and the open panel all compare equal.
+    func pinProject(_ cwd: String) {
+        let normalized = Self.normalize(cwd)
+        guard !normalized.isEmpty, !pinnedProjects.contains(normalized) else { return }
+        pinnedProjects.append(normalized)
+    }
+
+    /// Remove a project from the sidebar. It can return through pinProject,
+    /// but not by the automatic re-pin of sessions that are already open.
+    func unpinProject(_ cwd: String) {
+        let normalized = Self.normalize(cwd)
+        pinnedProjects.removeAll { $0 == normalized }
+    }
+
+    private static func normalize(_ path: String) -> String {
+        var path = path
+        while path.count > 1 && path.hasSuffix("/") {
+            path.removeLast()
+        }
+        return path
     }
 
     // MARK: - Pending spawns
