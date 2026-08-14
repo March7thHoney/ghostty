@@ -1886,10 +1886,7 @@ extension Ghostty {
             var restoreCommand = try container.decodeIfPresent(
                 SessionRestoreCommand.self, forKey: .restoreCommand)
 
-            // A saved session ID is only worth replaying if its transcript
-            // still exists; Claude garbage collects transcripts after about a
-            // month, and `--resume` with a collected ID just errors. Dropping
-            // the ID falls back to `--continue`.
+            // Claude collects transcripts after about a month, and `--resume` on a collected ID just errors.
             if let sessionID = restoreCommand?.sessionID, let savedPwd,
                !FileManager.default.fileExists(
                 atPath: SessionRestoreCommand.transcriptURL(

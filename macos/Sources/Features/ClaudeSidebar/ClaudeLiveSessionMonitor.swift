@@ -6,8 +6,7 @@ struct ClaudeLiveSession: Equatable {
         /// Actively working. Rendered as a spinner.
         case busy
 
-        /// Process alive but waiting. Any registry status other than "busy"
-        /// lands here, including states newer Claude versions may add.
+        /// Alive but waiting; any registry status other than "busy" lands here.
         case idle
     }
 
@@ -19,17 +18,7 @@ struct ClaudeLiveSession: Equatable {
     let updatedAt: Date
 }
 
-/// Watches the live-session registry Claude Code maintains at
-/// `~/.claude/sessions/<pid>.json`, one file per running interactive session.
-///
-/// The files are rewritten in place as a session's status changes, and stale
-/// files for dead processes do occur, so each poll validates every pid with
-/// `kill(pid, 0)`. The registry's `statusUpdatedAt` is event-driven rather
-/// than a heartbeat — a session can sit idle for days without touching its
-/// file — so staleness of the file itself means nothing.
-///
-/// `claude agents --json` reports the same data but spawns the full Claude
-/// binary, far too slow to poll; the files are the hot path.
+/// Watches `~/.claude/sessions/<pid>.json`, Claude's registry of running interactive sessions.
 @MainActor
 final class ClaudeLiveSessionMonitor: ObservableObject {
     static let shared = ClaudeLiveSessionMonitor()
@@ -37,15 +26,10 @@ final class ClaudeLiveSessionMonitor: ObservableObject {
     @Published private(set) var bySessionID: [String: ClaudeLiveSession] = [:]
     @Published private(set) var byPID: [pid_t: ClaudeLiveSession] = [:]
 
-    /// Sessions running in one of this app's own tabs, as opposed to some
-    /// other terminal: a session whose pid is the foreground process of one
-    /// of our surfaces. These get the sidebar's "open" highlight.
+    /// Sessions whose pid is the foreground process of one of our surfaces, so open in our own tabs.
     @Published private(set) var openInAppSessionIDs: Set<String> = []
 
-    /// The previous poll's open set, for edge-triggered pinning: a project
-    /// is pinned when a session in it *becomes* open, never continuously —
-    /// otherwise removing a project while its session is open would undo
-    /// itself two seconds later.
+    /// Previous poll's open set, so pinning is edge-triggered and a removal isn't undone next poll.
     private var previouslyOpenSessionIDs: Set<String> = []
 
     private var pollTask: Task<Void, Never>?
@@ -78,9 +62,7 @@ final class ClaudeLiveSessionMonitor: ObservableObject {
         }
         let newOpen = Set(sessions.filter { foregroundPIDs.contains($0.pid) }.map(\.sessionID))
 
-        // A session becoming open earns its project a permanent place in
-        // the sidebar. This covers sessions the user starts by hand in a
-        // tab just as well as ones the sidebar spawned.
+        // A session becoming open earns its project a place, however the session was started.
         for sessionID in newOpen.subtracting(previouslyOpenSessionIDs) {
             if let live = newBySessionID[sessionID] {
                 ClaudeSidebarState.shared.pinProject(live.cwd)
@@ -88,8 +70,7 @@ final class ClaudeLiveSessionMonitor: ObservableObject {
         }
         previouslyOpenSessionIDs = newOpen
 
-        // Publish only on real change so an idle system doesn't invalidate
-        // SwiftUI observers every poll.
+        // Publish only on real change so an idle system doesn't invalidate observers every poll.
         if newOpen != openInAppSessionIDs {
             openInAppSessionIDs = newOpen
         }
@@ -98,9 +79,7 @@ final class ClaudeLiveSessionMonitor: ObservableObject {
         byPID = Dictionary(sessions.map { ($0.pid, $0) }) { _, last in last }
     }
 
-    /// One-shot lookup of the session a process is running, for callers that
-    /// need an answer synchronously (session snapshotting). Reads a single
-    /// tiny file.
+    /// Synchronous one-shot lookup of the session a process is running, for session snapshotting.
     nonisolated static func sessionID(forPID pid: pid_t) -> String? {
         let url = registryURL.appendingPathComponent("\(pid).json")
         guard let entry = readEntry(at: url), entry.pid == pid else { return nil }
@@ -114,8 +93,7 @@ final class ClaudeLiveSessionMonitor: ObservableObject {
             .appendingPathComponent(".claude/sessions")
     }
 
-    /// The on-disk shape of one registry entry. Alongside these files live
-    /// `<pid>.<hash>.key` credential files which are deliberately never read.
+    /// One registry entry; the `<pid>.<hash>.key` credential files beside them are never read.
     private struct RegistryEntry: Decodable {
         let pid: pid_t
         let sessionId: String
@@ -152,8 +130,7 @@ final class ClaudeLiveSessionMonitor: ObservableObject {
         return try? JSONDecoder().decode(RegistryEntry.self, from: data)
     }
 
-    /// Whether a pid is alive. EPERM means the process exists but belongs to
-    /// someone else, which still counts.
+    /// Whether a pid is alive; EPERM counts, meaning it exists but belongs to someone else.
     nonisolated private static func processExists(_ pid: pid_t) -> Bool {
         guard pid > 0 else { return false }
         return kill(pid, 0) == 0 || errno == EPERM

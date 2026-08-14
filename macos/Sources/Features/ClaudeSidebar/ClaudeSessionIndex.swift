@@ -20,15 +20,7 @@ struct ClaudeProject: Identifiable, Equatable {
     }
 }
 
-/// The index of historical Claude Code sessions the sidebar shows, built by
-/// scanning the transcripts under `~/.claude/projects`.
-///
-/// The initial scan runs off the main actor and is incremental afterwards: a
-/// transcript is only re-parsed when its size or mtime moved (mtime is fine
-/// for cache invalidation; it's only ordering that can't trust it). An
-/// FSEvents watch on the projects directory triggers rescans, which also
-/// covers Claude's ~30-day garbage collection deleting transcripts out from
-/// under us.
+/// The historical sessions the sidebar shows, scanned off the main actor from `~/.claude/projects`.
 @MainActor
 final class ClaudeSessionIndex: ObservableObject {
     static let shared = ClaudeSessionIndex()
@@ -41,8 +33,7 @@ final class ClaudeSessionIndex: ObservableObject {
     private var rescanPending = false
     private var rescanRunning = false
 
-    /// Parse results keyed by transcript path. A nil summary records that a
-    /// file was unparseable so we don't retry it every scan.
+    /// Parse results by transcript path; a nil summary marks a file we shouldn't retry every scan.
     nonisolated(unsafe) private var cache: [String: CacheEntry] = [:]
     private struct CacheEntry {
         let size: Int64
@@ -84,8 +75,7 @@ final class ClaudeSessionIndex: ObservableObject {
             .appendingPathComponent(".claude/projects")
     }
 
-    /// Nonisolated so the scan runs off the main actor. Only `scheduleRescan`
-    /// calls this, one at a time, which is what makes the cache access safe.
+    /// Off the main actor; only `scheduleRescan` calls it, one at a time, so cache access is safe.
     nonisolated private func rescan() async -> [ClaudeProject] {
         let fileManager = FileManager.default
         guard let projectDirs = try? fileManager.contentsOfDirectory(
@@ -99,9 +89,7 @@ final class ClaudeSessionIndex: ObservableObject {
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
 
         for dir in projectDirs {
-            // A project dir holds the transcripts plus same-named sidecar
-            // directories and a memory/ directory; only regular *.jsonl
-            // files are transcripts.
+            // Project dirs also hold same-named sidecar dirs and memory/; only *.jsonl are transcripts.
             guard let files = try? fileManager.contentsOfDirectory(
                 at: dir,
                 includingPropertiesForKeys: Array(keys),
@@ -135,8 +123,7 @@ final class ClaudeSessionIndex: ObservableObject {
         return Self.group(summaries)
     }
 
-    /// Group summaries into projects by their recorded working directory,
-    /// everything ordered most recent first.
+    /// Group summaries by recorded working directory, everything ordered most recent first.
     nonisolated static func group(_ summaries: [ClaudeTranscriptSummary]) -> [ClaudeProject] {
         let grouped: [String: [ClaudeTranscriptSummary]] = Dictionary(
             grouping: summaries, by: { $0.cwd })
@@ -168,9 +155,7 @@ final class ClaudeSessionIndex: ObservableObject {
             release: nil,
             copyDescription: nil)
 
-        // FSEvents watches recursively, so one stream on the projects root
-        // sees new transcripts, appends, and garbage collection everywhere
-        // beneath it.
+        // FSEvents is recursive, so one stream sees new transcripts, appends, and deletions.
         guard let stream = FSEventStreamCreate(
             kCFAllocatorDefault,
             { _, info, _, _, _, _ in

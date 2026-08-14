@@ -64,8 +64,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// Regular terminal windows show the Claude sessions sidebar.
     override var isClaudeSidebarSupported: Bool { true }
 
-    /// Subscription that keeps the tab's Claude activity indicator in sync
-    /// with the live-session registry.
+    /// Keeps the tab's Claude activity indicator in sync with the live-session registry.
     private var claudeActivityCancellable: AnyCancellable?
 
     init(_ ghostty: Ghostty.App,
@@ -197,8 +196,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-    /// Reflect the busiest Claude session running in any of this window's
-    /// surfaces onto the tab indicator: busy beats idle beats nothing.
+    /// Reflect this window's busiest Claude session onto the tab: busy beats idle beats nothing.
     private func syncClaudeActivity(_ byPID: [pid_t: ClaudeLiveSession]) {
         guard let window = window as? TerminalWindow else { return }
 
@@ -1133,9 +1131,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Set the initial content size on the container so that
         // intrinsicContentSize returns the correct value immediately,
         // without waiting for @FocusedValue to propagate through the
-        // SwiftUI focus chain. The Claude sidebar sits beside the surface
-        // inside the same hosting view, so its width (plus divider) has to
-        // be part of this fallback or the first frame comes up short.
+        // The sidebar shares the hosting view, so its width must be in this fallback or the first frame is short.
         if var initialContentSize = focusedSurface?.initialSize {
             initialContentSize.width += (ClaudeSidebarState.shared.isVisible
                 ? ClaudeSidebarView.width
@@ -1145,8 +1141,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         window.contentView = container
 
-        // Keep the tab's Claude activity indicator in sync with the
-        // live-session registry.
+        // Keep the tab's Claude activity indicator in sync with the live-session registry.
         claudeActivityCancellable = ClaudeLiveSessionMonitor.shared.$byPID
             .receive(on: DispatchQueue.main)
             .sink { [weak self] byPID in self?.syncClaudeActivity(byPID) }

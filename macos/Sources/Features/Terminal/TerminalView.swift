@@ -36,8 +36,7 @@ protocol TerminalViewModel: ObservableObject {
     /// The update overlay should be visible.
     var updateOverlayIsVisible: Bool { get }
 
-    /// Whether the Claude sessions sidebar may be shown in this view.
-    /// False for the quick terminal.
+    /// Whether the Claude sessions sidebar may be shown here; false for the quick terminal.
     var isClaudeSidebarSupported: Bool { get }
 
     /// The window hosting this view, used by the sidebar to open tabs.
@@ -87,12 +86,14 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         if sidebarState.isVisible {
                             ClaudeSidebarView(
                                 backgroundColor: ghostty.config.backgroundColor,
+                                backgroundOpacity: ghostty.config.backgroundOpacity,
                                 dividerColor: ghostty.config.splitDividerColor,
                                 hostWindow: { viewModel.hostWindow },
                                 currentPwd: { lastFocusedSurface?.value?.pwd })
                         } else {
                             ClaudeSidebarRail(
                                 backgroundColor: ghostty.config.backgroundColor,
+                                backgroundOpacity: ghostty.config.backgroundOpacity,
                                 hostWindow: { viewModel.hostWindow },
                                 currentPwd: { lastFocusedSurface?.value?.pwd })
                         }
@@ -100,8 +101,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                             .fill(ghostty.config.splitDividerColor)
                             .frame(width: 1)
                     }
-                    // Match the terminal content's treatment of the hidden
-                    // titlebar style so the sidebar extends under it too.
+                    // Match the terminal's hidden-titlebar treatment so the sidebar extends under it too.
                     .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
                     .onAppear {
                         ClaudeSessionIndex.shared.start()

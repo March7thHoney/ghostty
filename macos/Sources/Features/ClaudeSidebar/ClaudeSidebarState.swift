@@ -1,9 +1,6 @@
 import AppKit
 
-/// App-wide sidebar state. Every terminal window renders the sidebar from
-/// this one object, which is what makes the sidebar look like a single shared
-/// panel across native tabs (each tab is its own window): they all show the
-/// same thing, and collapsing one collapses them all.
+/// App-wide sidebar state; every window renders from it, so tabs look like one shared panel.
 @MainActor
 final class ClaudeSidebarState: ObservableObject {
     static let shared = ClaudeSidebarState()
@@ -16,15 +13,10 @@ final class ClaudeSidebarState: ObservableObject {
         didSet { UserDefaults.ghostty.set(isVisible, forKey: Self.visibleKey) }
     }
 
-    /// Projects (by cwd) showing all of their sessions instead of the first
-    /// few. Shared so tabs — each its own window — stay in sync; deliberately
-    /// not persisted.
+    /// Projects showing all their sessions rather than the first few; shared across tabs, not persisted.
     @Published var expandedProjects: Set<String> = []
 
-    /// The working directories the sidebar shows, in the order they were
-    /// added. The sidebar starts empty; a project earns its place by having
-    /// a session opened, a conversation started, or being added by hand —
-    /// and then stays until removed.
+    /// Directories the sidebar shows, in the order added; it starts empty and each stays until removed.
     @Published private(set) var pinnedProjects: [String] {
         didSet { UserDefaults.ghostty.set(pinnedProjects, forKey: Self.pinnedKey) }
     }
@@ -34,17 +26,14 @@ final class ClaudeSidebarState: ObservableObject {
         pinnedProjects = UserDefaults.ghostty.array(forKey: Self.pinnedKey) as? [String] ?? []
     }
 
-    /// Add a project to the sidebar. Paths are normalized (no trailing
-    /// slash) so directories arriving from the session registry, transcripts,
-    /// and the open panel all compare equal.
+    /// Paths are normalized so the registry, transcripts, and the open panel all compare equal.
     func pinProject(_ cwd: String) {
         let normalized = Self.normalize(cwd)
         guard !normalized.isEmpty, !pinnedProjects.contains(normalized) else { return }
         pinnedProjects.append(normalized)
     }
 
-    /// Remove a project from the sidebar. It can return through pinProject,
-    /// but not by the automatic re-pin of sessions that are already open.
+    /// Removal sticks: already-open sessions don't re-pin, only newly opened ones do.
     func unpinProject(_ cwd: String) {
         let normalized = Self.normalize(cwd)
         pinnedProjects.removeAll { $0 == normalized }
@@ -60,10 +49,7 @@ final class ClaudeSidebarState: ObservableObject {
 
     // MARK: - Pending spawns
 
-    /// A tab we opened for a session that hasn't appeared in the live-session
-    /// registry yet because Claude is still starting. Until it registers,
-    /// the foreground-pid search can't find it, so without this a second
-    /// click on the row would open a second tab.
+    /// A tab whose Claude is still starting, so the pid search can't find it and a second click would duplicate it.
     struct PendingSpawn {
         weak var controller: TerminalController?
         let spawnedAt: Date
@@ -72,9 +58,7 @@ final class ClaudeSidebarState: ObservableObject {
     /// Keyed by session ID.
     private(set) var pendingSpawns: [String: PendingSpawn] = [:]
 
-    /// How long a spawn stays pending. If Claude never registers (resume
-    /// failed, transcript gone), the entry must not capture the row's clicks
-    /// forever.
+    /// Bounded so a Claude that never registers doesn't capture the row's clicks forever.
     private static let pendingSpawnLifetime: TimeInterval = 60
 
     func notePendingSpawn(sessionID: String, controller: TerminalController) {
@@ -87,8 +71,7 @@ final class ClaudeSidebarState: ObservableObject {
         return pendingSpawns[sessionID]?.controller
     }
 
-    /// Drop entries whose tab is gone, whose session has registered (the
-    /// normal lookup finds those), or that have outlived their usefulness.
+    /// Drop entries whose tab is gone, whose session has registered, or that have expired.
     func prunePendingSpawns() {
         let live = ClaudeLiveSessionMonitor.shared.bySessionID
         pendingSpawns = pendingSpawns.filter { sessionID, pending in

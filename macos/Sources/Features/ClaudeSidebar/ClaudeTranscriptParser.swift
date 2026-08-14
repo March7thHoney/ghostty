@@ -1,11 +1,6 @@
 import Foundation
 
-/// Summary of one Claude Code transcript file, extracted without parsing the
-/// whole file. Transcripts live at `~/.claude/projects/<dir>/<uuid>.jsonl`
-/// where `<dir>` is the working directory with every non-alphanumeric
-/// character replaced by "-". That mangling is lossy ("/a/b_c" and "/a/b-c"
-/// collide), so the working directory is always read from the records inside
-/// the file, never decoded from the directory name.
+/// Summary of one `~/.claude/projects/<dir>/<uuid>.jsonl` transcript, read without parsing all of it.
 struct ClaudeTranscriptSummary: Equatable {
     /// The session ID, which is the transcript's filename stem.
     let sessionID: String
@@ -13,24 +8,18 @@ struct ClaudeTranscriptSummary: Equatable {
     /// The transcript file itself.
     let fileURL: URL
 
-    /// The working directory the session ran in, from the records inside the
-    /// file. `claude --resume` looks sessions up per directory, so resuming
-    /// must happen here.
+    /// Read from the records inside, never decoded from the directory name, whose mangling is lossy.
     let cwd: String
 
-    /// Best available title. Live sessions may have a fresher name in the
-    /// session registry; that is layered on at display time, not here.
+    /// Best title in the transcript; a live session's registry name is layered on at display time.
     let title: String?
 
-    /// Timestamp of the last record that carries one. File mtime is not
-    /// usable for this: Claude Code touches old transcripts at startup,
-    /// skewing mtimes by up to days.
+    /// Last record's timestamp; mtime is unusable because Claude touches old transcripts at startup.
     let lastActivity: Date?
 }
 
 enum ClaudeTranscriptParser {
-    /// Parse a transcript file. Returns nil when the filename is not a
-    /// session UUID or no record in the file names a working directory.
+    /// Nil when the filename isn't a session UUID or no record names a working directory.
     static func parse(fileURL: URL) -> ClaudeTranscriptSummary? {
         let stem = fileURL.deletingPathExtension().lastPathComponent
         guard UUID(uuidString: stem) != nil else { return nil }
@@ -44,10 +33,7 @@ enum ClaudeTranscriptParser {
         let head = scanHead(data)
         guard let cwd = head.cwd else { return nil }
 
-        // The title sources, best first. ai-title records are rewritten over
-        // the session's life and can sit anywhere in the file, so they are
-        // found by searching backward for the last one rather than scanning
-        // every line.
+        // Title sources best first; ai-title is rewritten over a session's life and sits anywhere.
         let title = lastMatch(in: data, keyPattern: "\"aiTitle\"", where: { record in
             record["type"] as? String == "ai-title"
         }, extract: { $0["aiTitle"] as? String })
@@ -57,8 +43,7 @@ enum ClaudeTranscriptParser {
             }, extract: { $0["lastPrompt"] as? String })
             ?? head.firstUserMessage
 
-        // The literal last line can be a record with no timestamp (e.g.
-        // last-prompt), so take the last record that has one.
+        // The literal last line can carry no timestamp, so take the last record that has one.
         let lastActivity = lastMatch(in: data, keyPattern: "\"timestamp\"", where: { _ in true }) {
             ($0["timestamp"] as? String).flatMap(parseTimestamp)
         }
@@ -79,9 +64,7 @@ enum ClaudeTranscriptParser {
         var firstUserMessage: String?
     }
 
-    /// Caps on the forward scan. The values a head scan wants are normally in
-    /// the first handful of records, but the file can open with records that
-    /// carry none of them (queue operations), so we keep going a while.
+    /// Forward-scan caps; a file can open with records carrying none of the values we want.
     private static let headMaxLines = 100
     private static let headMaxBytes = 256 * 1024
 
@@ -119,9 +102,7 @@ enum ClaudeTranscriptParser {
         return head
     }
 
-    /// The displayable text of a user record, or nil for records that make
-    /// poor titles: meta records, sidechain (subagent) records, and slash
-    /// command or system wrappers.
+    /// A user record's displayable text, skipping meta, sidechain, and command or system wrappers.
     private static func userMessageText(_ record: [String: Any]) -> String? {
         guard record["type"] as? String == "user",
               record["isMeta"] as? Bool != true,
@@ -150,11 +131,7 @@ enum ClaudeTranscriptParser {
 
     // MARK: - Backward search
 
-    /// Find the last record in the file containing `keyPattern` that both
-    /// satisfies `where` and yields a value from `extract`. The byte search
-    /// only locates candidate lines; values always come from parsing the
-    /// full line as JSON, so a pattern that merely appears inside some
-    /// message's text fails validation and the search continues backward.
+    /// Last validating record containing `keyPattern`; the byte search only locates candidate lines.
     private static func lastMatch<T>(
         in data: Data,
         keyPattern: String,
@@ -199,8 +176,7 @@ enum ClaudeTranscriptParser {
 
     private static let wholeSecondFormatter = ISO8601DateFormatter()
 
-    /// Titles render on a single sidebar row; collapse to the first line and
-    /// bound the length so a pasted wall of text can't be one.
+    /// Rows are one line, so collapse to the first line and bound the length.
     private static func cleanTitle(_ raw: String) -> String {
         let firstLine = raw
             .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)

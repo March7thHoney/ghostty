@@ -13,18 +13,14 @@ struct SessionRestoreCommand: Codable, Equatable {
         /// An SSH session. Restored by re-running the same invocation.
         case ssh
 
-        /// Claude Code. Restored with `--resume <session>` when we know which
-        /// conversation the process had open, falling back to `--continue`
-        /// (most recent conversation in the working directory) when we don't.
+        /// Claude Code, restored with `--resume <session>` when we know it, else `--continue`.
         case claude
     }
 
     let kind: Kind
     let argv: [String]
 
-    /// The Claude Code session the process had open, from the live-session
-    /// registry. The session ID appears nowhere in the process's argv or
-    /// environment, so the registry is the only place to learn it.
+    /// From the live-session registry, the only place it exists: never in the process's argv or environment.
     var sessionID: String? = nil
 
     // MARK: - Detection
@@ -124,11 +120,7 @@ struct SessionRestoreCommand: Codable, Equatable {
     func shellCommandLine() -> String? {
         switch kind {
         case .claude:
-            // Resume the exact conversation when we know it; this is what
-            // keeps two Claude tabs in the same directory from both resuming
-            // the same conversation. Without a session ID, `--continue`
-            // resumes the most recent conversation in the working directory
-            // we're already being restored into.
+            // Resuming the exact conversation is what keeps two tabs in one directory from colliding.
             if let sessionID {
                 return "claude --resume \(Ghostty.Shell.quote(sessionID))"
             }
@@ -143,11 +135,7 @@ struct SessionRestoreCommand: Codable, Equatable {
 
     // MARK: - Transcripts
 
-    /// Where Claude Code keeps the transcript for a session that ran in the
-    /// given directory: `~/.claude/projects/<dir>/<sessionID>.jsonl`, where
-    /// `<dir>` is the working directory with every non-alphanumeric character
-    /// replaced by "-". Used to notice that a saved session was garbage
-    /// collected while Ghostty wasn't running.
+    /// `~/.claude/projects/<cwd with [^a-zA-Z0-9] as "-">/<sessionID>.jsonl`, to spot collected transcripts.
     static func transcriptURL(sessionID: String, cwd: String) -> URL {
         let mangled = String(cwd.unicodeScalars.map { scalar -> Character in
             switch scalar {

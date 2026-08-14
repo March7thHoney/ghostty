@@ -16,8 +16,7 @@ struct ClaudeTranscriptParserTests {
 
     // MARK: - cwd
 
-    /// Transcripts can open with records that carry no cwd (queue
-    /// operations); the scan has to keep going until one does.
+    /// Transcripts can open with records carrying no cwd, so the scan keeps going until one does.
     @Test func cwdBehindLeadingRecordsWithoutOne() {
         let summary = parse([
             #"{"type":"queue-operation","operation":"enqueue"}"#,
@@ -27,8 +26,7 @@ struct ClaudeTranscriptParserTests {
         #expect(summary?.cwd == "/projects/alpha")
     }
 
-    /// No record naming a cwd means the transcript is unusable for the
-    /// sidebar: without it there is nowhere to resume the session.
+    /// No cwd means the transcript is unusable: there'd be nowhere to resume the session.
     @Test func missingCwdFails() {
         #expect(parse([#"{"type":"queue-operation"}"#]) == nil)
     }
@@ -46,8 +44,7 @@ struct ClaudeTranscriptParserTests {
         #expect(summary?.title == "Later title")
     }
 
-    /// The byte search may land inside a message that merely talks about
-    /// aiTitle records; only a real ai-title record counts.
+    /// The byte search may land in a message that merely mentions aiTitle; only real records count.
     @Test func aiTitleMentionedInMessageTextIsIgnored() {
         let summary = parse([
             #"{"type":"user","cwd":"/projects/alpha","timestamp":"2026-01-02T03:04:05.678Z","message":{"role":"user","content":"real question"}}"#,

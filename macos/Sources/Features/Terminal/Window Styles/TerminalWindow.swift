@@ -357,10 +357,7 @@ class TerminalWindow: NSWindow {
 
     // MARK: Claude Activity
 
-    /// The activity of the Claude Code session running in this window's
-    /// surfaces, shown as a spinner (busy) or dot (idle) in the tab. This is
-    /// non-interactive SwiftUI, which works fine in a tab accessory; it's
-    /// only buttons that don't receive clicks there.
+    /// This window's Claude session state, shown in the tab; non-interactive SwiftUI works in accessories.
     var claudeActivity: ClaudeLiveSession.Activity? = nil {
         didSet {
             guard claudeActivity != oldValue else { return }

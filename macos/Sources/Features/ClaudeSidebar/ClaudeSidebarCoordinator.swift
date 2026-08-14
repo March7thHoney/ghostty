@@ -1,32 +1,24 @@
 import AppKit
 
-/// The actions behind the sidebar: opening a session, focusing one that's
-/// already open, and starting new conversations.
+/// The actions behind the sidebar: opening, focusing, and starting sessions.
 @MainActor
 enum ClaudeSidebarCoordinator {
-    /// Bring a session to the front: focus the tab already running it if
-    /// there is one anywhere, otherwise open a new tab that resumes it.
+    /// Focus the tab already running this session anywhere, otherwise open a new tab resuming it.
     static func openOrFocus(session: ClaudeTranscriptSummary, from window: NSWindow?) {
-        // A tab we spawned for this session that Claude hasn't registered
-        // yet. Focusing it (rather than spawning again) is the double-click
-        // protection.
+        // A tab we spawned whose Claude hasn't registered yet; focusing it is the double-click guard.
         if let pending = ClaudeSidebarState.shared.pendingSpawnController(for: session.sessionID) {
             focus(controller: pending)
             return
         }
 
-        // The session ID never appears in a process's argv, but the live
-        // registry maps it to a pid, and a surface whose foreground process
-        // is that pid is the tab running it. This finds tabs the user
-        // started by hand just as well as ones we spawned.
+        // Session IDs never appear in argv, but the registry maps one to a pid we can match.
         if let live = ClaudeLiveSessionMonitor.shared.bySessionID[session.sessionID],
            let (controller, surface) = surfaceRunning(pid: live.pid) {
             controller.focusSurface(surface)
             return
         }
 
-        // `claude --resume` looks sessions up per working directory, so the
-        // resume must happen in the session's own cwd or it won't be found.
+        // `claude --resume` looks sessions up per directory, so it must run in the session's own cwd.
         guard directoryExists(session.cwd) else {
             alertMissingDirectory(session.cwd, in: window)
             return
@@ -96,8 +88,7 @@ enum ClaudeSidebarCoordinator {
 
     // MARK: - Helpers
 
-    /// The surface (and its controller) whose foreground process is `pid`,
-    /// searched across every terminal window.
+    /// The surface and controller whose foreground process is `pid`, across every terminal window.
     private static func surfaceRunning(
         pid: pid_t
     ) -> (BaseTerminalController, Ghostty.SurfaceView)? {
@@ -124,9 +115,7 @@ enum ClaudeSidebarCoordinator {
 
         var config = Ghostty.SurfaceConfiguration()
         config.workingDirectory = cwd
-        // Typed into the shell rather than run as the surface's command so
-        // the surface stays a normal shell session (and stays restorable;
-        // setting `command` marks the window unrestorable).
+        // Typed into the shell, not run as the surface's command, which would mark the window unrestorable.
         config.initialInput = "\(input)\n"
         return TerminalController.newTab(
             appDelegate.ghostty, from: window, withBaseConfig: config)
