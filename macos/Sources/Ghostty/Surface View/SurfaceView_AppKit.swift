@@ -1883,8 +1883,20 @@ extension Ghostty {
             // working directory keeps being reported, and the tab outlives
             // the program. Setting `command` would also mark the window
             // unrestorable, so the session could only ever be restored once.
-            let restoreCommand = try container.decodeIfPresent(
+            var restoreCommand = try container.decodeIfPresent(
                 SessionRestoreCommand.self, forKey: .restoreCommand)
+
+            // A saved session ID is only worth replaying if its transcript
+            // still exists; Claude garbage collects transcripts after about a
+            // month, and `--resume` with a collected ID just errors. Dropping
+            // the ID falls back to `--continue`.
+            if let sessionID = restoreCommand?.sessionID, let savedPwd,
+               !FileManager.default.fileExists(
+                atPath: SessionRestoreCommand.transcriptURL(
+                    sessionID: sessionID, cwd: savedPwd).path) {
+                restoreCommand?.sessionID = nil
+            }
+
             if let line = restoreCommand?.shellCommandLine() {
                 config.initialInput = "\(line)\n"
             }

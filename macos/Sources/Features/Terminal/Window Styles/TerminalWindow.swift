@@ -165,6 +165,7 @@ class TerminalWindow: NSWindow {
         stackView.setHuggingPriority(.defaultHigh, for: .horizontal)
         stackView.spacing = 4
         stackView.alignment = .centerY
+        stackView.addArrangedSubview(claudeActivityView)
         stackView.addArrangedSubview(tabColorIndicator)
         stackView.addArrangedSubview(keyEquivalentLabel)
         stackView.addArrangedSubview(resetZoomTabButton)
@@ -352,6 +353,28 @@ class TerminalWindow: NSWindow {
         label.setContentCompressionResistancePriority(.windowSizeStayPut, for: .horizontal)
         label.postsFrameChangedNotifications = true
         return label
+    }()
+
+    // MARK: Claude Activity
+
+    /// The activity of the Claude Code session running in this window's
+    /// surfaces, shown as a spinner (busy) or dot (idle) in the tab. This is
+    /// non-interactive SwiftUI, which works fine in a tab accessory; it's
+    /// only buttons that don't receive clicks there.
+    var claudeActivity: ClaudeLiveSession.Activity? = nil {
+        didSet {
+            guard claudeActivity != oldValue else { return }
+            claudeActivityView.rootView = ClaudeActivityIndicatorView(
+                activity: claudeActivity, small: true)
+            claudeActivityView.isHidden = claudeActivity == nil
+        }
+    }
+
+    private lazy var claudeActivityView: NSHostingView<ClaudeActivityIndicatorView> = {
+        let view = NSHostingView(rootView: ClaudeActivityIndicatorView(
+            activity: nil, small: true))
+        view.isHidden = true
+        return view
     }()
 
     // MARK: Surface Zoom

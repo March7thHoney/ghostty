@@ -61,6 +61,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
+    /// Regular terminal windows show the Claude sessions sidebar.
+    override var isClaudeSidebarSupported: Bool { true }
+
+    /// Subscription that keeps the tab's Claude activity indicator in sync
+    /// with the live-session registry.
+    private var claudeActivityCancellable: AnyCancellable?
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -181,10 +188,32 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             window.surfaceIsZoomed = to.zoomed != nil
         }
 
+        // A closed split may have been the one running Claude.
+        syncClaudeActivity(ClaudeLiveSessionMonitor.shared.byPID)
+
         // If our surface tree is now nil then we close our window.
         if to.isEmpty {
             self.window?.close()
         }
+    }
+
+    /// Reflect the busiest Claude session running in any of this window's
+    /// surfaces onto the tab indicator: busy beats idle beats nothing.
+    private func syncClaudeActivity(_ byPID: [pid_t: ClaudeLiveSession]) {
+        guard let window = window as? TerminalWindow else { return }
+
+        var activity: ClaudeLiveSession.Activity? = nil
+        for surface in surfaceTree {
+            guard let pid = surface.surfaceModel?.foregroundPID,
+                  let pid32 = pid_t(exactly: pid),
+                  let live = byPID[pid32] else { continue }
+            if live.activity == .busy {
+                activity = .busy
+                break
+            }
+            activity = .idle
+        }
+        window.claudeActivity = activity
     }
 
     override func replaceSurfaceTree(
@@ -1104,10 +1133,23 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Set the initial content size on the container so that
         // intrinsicContentSize returns the correct value immediately,
         // without waiting for @FocusedValue to propagate through the
-        // SwiftUI focus chain.
-        container.initialContentSize = focusedSurface?.initialSize
+        // SwiftUI focus chain. The Claude sidebar sits beside the surface
+        // inside the same hosting view, so its width (plus divider) has to
+        // be part of this fallback or the first frame comes up short.
+        if var initialContentSize = focusedSurface?.initialSize {
+            initialContentSize.width += (ClaudeSidebarState.shared.isVisible
+                ? ClaudeSidebarView.width
+                : ClaudeSidebarRail.width) + 1
+            container.initialContentSize = initialContentSize
+        }
 
         window.contentView = container
+
+        // Keep the tab's Claude activity indicator in sync with the
+        // live-session registry.
+        claudeActivityCancellable = ClaudeLiveSessionMonitor.shared.$byPID
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] byPID in self?.syncClaudeActivity(byPID) }
 
         // If we have a default size, we want to apply it.
         if let defaultSize {
