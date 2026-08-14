@@ -2603,11 +2603,10 @@ keybind: Keybinds = .{},
 
 /// Confirms that a surface should be closed before closing it.
 ///
-/// This defaults to `true`. If set to `false`, surfaces will close without
-/// any confirmation. This can also be set to `always`, which will always
-/// confirm closing a surface, even if shell integration says a process isn't
-/// running.
-@"confirm-close-surface": ConfirmCloseSurface = .true,
+/// This defaults to `false`, so surfaces close without any confirmation.
+/// Set this to `true` to confirm only when shell integration says a process
+/// is still running, or to `always` to confirm every time regardless.
+@"confirm-close-surface": ConfirmCloseSurface = .false,
 
 /// Whether or not to quit after the last surface is closed.
 ///
