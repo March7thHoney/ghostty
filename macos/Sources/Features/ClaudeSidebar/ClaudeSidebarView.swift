@@ -238,16 +238,17 @@ private struct ClaudeSidebarProjectHeader: View {
 
             Spacer(minLength: 4)
 
-            if isHovering {
-                Button {
-                    ClaudeSidebarCoordinator.newConversation(
-                        cwd: project.cwd, from: hostWindow())
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(ClaudeSidebarIconButtonStyle(size: 10))
-                .help("New Claude conversation in this project")
+            // Always laid out, only revealed on hover: inserting it would resize the row under the pointer.
+            Button {
+                ClaudeSidebarCoordinator.newConversation(
+                    cwd: project.cwd, from: hostWindow())
+            } label: {
+                Image(systemName: "plus")
             }
+            .buttonStyle(ClaudeSidebarIconButtonStyle(size: 10, frame: 18))
+            .help("New Claude conversation in this project")
+            .opacity(isHovering ? 1 : 0)
+            .allowsHitTesting(isHovering)
         }
         .padding(.leading, 10)
         .padding(.trailing, 4)
@@ -373,6 +374,9 @@ private struct ClaudeSidebarShowMoreRow: View {
 private struct ClaudeSidebarIconButtonStyle: ButtonStyle {
     var size: CGFloat = 12
 
+    /// The hit area, which also sets the height of whatever row the button sits in.
+    var frame: CGFloat = 22
+
     @State private var isHovering = false
 
     func makeBody(configuration: Configuration) -> some View {
@@ -382,7 +386,7 @@ private struct ClaudeSidebarIconButtonStyle: ButtonStyle {
                 isHovering || configuration.isPressed
                     ? AnyShapeStyle(.primary)
                     : AnyShapeStyle(.secondary))
-            .frame(width: 22, height: 22)
+            .frame(width: frame, height: frame)
             .background(
                 RoundedRectangle(cornerRadius: 5)
                     .fill(Color.primary.opacity(
