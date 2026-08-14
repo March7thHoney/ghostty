@@ -87,6 +87,50 @@ struct SessionRestoreCommandTests {
         #expect(cmd.shellCommandLine() == "claude --continue")
     }
 
+    /// Knowing the exact session beats `--continue`: it's what lets two
+    /// Claude tabs in the same directory restore different conversations.
+    @Test func claudeReplaysWithResumeWhenSessionKnown() {
+        let cmd = SessionRestoreCommand(
+            kind: .claude,
+            argv: ["claude"],
+            sessionID: "11111111-2222-3333-4444-555555555555")
+        #expect(cmd.shellCommandLine() == "claude --resume 11111111-2222-3333-4444-555555555555")
+    }
+
+    /// Snapshots written before the sessionID field existed must keep
+    /// decoding, and the field must round-trip when present.
+    @Test func sessionIDIsOptionalInSavedState() throws {
+        let legacy = Data(#"{"kind":"claude","argv":["claude"]}"#.utf8)
+        let decoded = try JSONDecoder().decode(SessionRestoreCommand.self, from: legacy)
+        #expect(decoded.kind == .claude)
+        #expect(decoded.sessionID == nil)
+        #expect(decoded.shellCommandLine() == "claude --continue")
+
+        let modern = SessionRestoreCommand(
+            kind: .claude,
+            argv: ["claude"],
+            sessionID: "11111111-2222-3333-4444-555555555555")
+        let reDecoded = try JSONDecoder().decode(
+            SessionRestoreCommand.self, from: JSONEncoder().encode(modern))
+        #expect(reDecoded == modern)
+    }
+
+    // MARK: - Transcript location
+
+    /// The transcript directory name is the cwd with every character outside
+    /// [a-zA-Z0-9] replaced by "-". The rule is lossy by design (Claude's
+    /// own scheme); we only mirror it to check file existence.
+    @Test func transcriptURLManglesLikeClaude() {
+        let url = SessionRestoreCommand.transcriptURL(
+            sessionID: "11111111-2222-3333-4444-555555555555",
+            cwd: "/projects/My_tool.v2/例子 dir")
+        #expect(url.lastPathComponent == "11111111-2222-3333-4444-555555555555.jsonl")
+        #expect(url.deletingLastPathComponent().lastPathComponent
+                == "-projects-My-tool-v2----dir")
+        #expect(url.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent
+                == "projects")
+    }
+
     @Test func sshReplaysVerbatimWithoutRemotePwd() {
         let cmd = SessionRestoreCommand(kind: .ssh, argv: ["ssh", "example-host"])
         #expect(cmd.shellCommandLine() == "ssh example-host")

@@ -13,20 +13,26 @@ struct SessionRestoreCommand: Codable, Equatable {
         /// An SSH session. Restored by re-running the same invocation.
         case ssh
 
-        /// Claude Code. Restored with `--continue`, which resumes the most
-        /// recent conversation in the working directory we're restoring into.
+        /// Claude Code, restored with `--resume <session>` when we know it, else `--continue`.
         case claude
     }
 
     let kind: Kind
     let argv: [String]
 
+    /// From the live-session registry, the only place it exists: never in the process's argv or environment.
+    var sessionID: String? = nil
+
     // MARK: - Detection
 
     /// Detect a restorable command from the foreground process of a surface.
     static func detect(foregroundPID pid: pid_t) -> SessionRestoreCommand? {
         guard let argv = ProcessCommandLine.argv(pid: pid) else { return nil }
-        return detect(argv: argv, executablePath: ProcessCommandLine.executablePath(pid: pid))
+        var command = detect(argv: argv, executablePath: ProcessCommandLine.executablePath(pid: pid))
+        if command?.kind == .claude {
+            command?.sessionID = ClaudeLiveSessionMonitor.sessionID(forPID: pid)
+        }
+        return command
     }
 
     /// The detection itself, split out from process inspection so it can be
@@ -114,10 +120,10 @@ struct SessionRestoreCommand: Codable, Equatable {
     func shellCommandLine() -> String? {
         switch kind {
         case .claude:
-            // We're already being restored into the saved working directory,
-            // and `--continue` resumes the most recent conversation there.
-            // Note that two Claude tabs in the same directory will therefore
-            // both resume the same conversation.
+            // Resuming the exact conversation is what keeps two tabs in one directory from colliding.
+            if let sessionID {
+                return "claude --resume \(Ghostty.Shell.quote(sessionID))"
+            }
             return "claude --continue"
 
         case .ssh:
@@ -125,5 +131,21 @@ struct SessionRestoreCommand: Codable, Equatable {
             guard !argv.isEmpty else { return nil }
             return argv.map { Ghostty.Shell.quote($0) }.joined(separator: " ")
         }
+    }
+
+    // MARK: - Transcripts
+
+    /// `~/.claude/projects/<cwd with [^a-zA-Z0-9] as "-">/<sessionID>.jsonl`, to spot collected transcripts.
+    static func transcriptURL(sessionID: String, cwd: String) -> URL {
+        let mangled = String(cwd.unicodeScalars.map { scalar -> Character in
+            switch scalar {
+            case "a"..."z", "A"..."Z", "0"..."9": return Character(scalar)
+            default: return "-"
+            }
+        })
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/projects")
+            .appendingPathComponent(mangled)
+            .appendingPathComponent("\(sessionID).jsonl")
     }
 }

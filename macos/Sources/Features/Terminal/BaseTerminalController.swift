@@ -59,6 +59,12 @@ class BaseTerminalController: NSWindowController,
     /// Set if the terminal view should show the update overlay.
     @Published var updateOverlayIsVisible: Bool = false
 
+    /// Only regular terminal windows override this; the quick terminal keeps the sidebar off.
+    var isClaudeSidebarSupported: Bool { false }
+
+    /// The window hosting the terminal view, for the sidebar to open tabs.
+    var hostWindow: NSWindow? { window }
+
     /// True when any surface in this controller currently has an active bell.
     @Published private(set) var bell: Bool = false
 

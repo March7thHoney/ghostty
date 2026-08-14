@@ -165,6 +165,7 @@ class TerminalWindow: NSWindow {
         stackView.setHuggingPriority(.defaultHigh, for: .horizontal)
         stackView.spacing = 4
         stackView.alignment = .centerY
+        stackView.addArrangedSubview(claudeActivityView)
         stackView.addArrangedSubview(tabColorIndicator)
         stackView.addArrangedSubview(keyEquivalentLabel)
         stackView.addArrangedSubview(resetZoomTabButton)
@@ -352,6 +353,25 @@ class TerminalWindow: NSWindow {
         label.setContentCompressionResistancePriority(.windowSizeStayPut, for: .horizontal)
         label.postsFrameChangedNotifications = true
         return label
+    }()
+
+    // MARK: Claude Activity
+
+    /// This window's Claude session state, shown in the tab; non-interactive SwiftUI works in accessories.
+    var claudeActivity: ClaudeLiveSession.Activity? = nil {
+        didSet {
+            guard claudeActivity != oldValue else { return }
+            claudeActivityView.rootView = ClaudeActivityIndicatorView(
+                activity: claudeActivity, small: true)
+            claudeActivityView.isHidden = claudeActivity == nil
+        }
+    }
+
+    private lazy var claudeActivityView: NSHostingView<ClaudeActivityIndicatorView> = {
+        let view = NSHostingView(rootView: ClaudeActivityIndicatorView(
+            activity: nil, small: true))
+        view.isHidden = true
+        return view
     }()
 
     // MARK: Surface Zoom
