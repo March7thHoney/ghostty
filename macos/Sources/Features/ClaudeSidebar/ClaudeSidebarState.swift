@@ -13,8 +13,11 @@ final class ClaudeSidebarState: ObservableObject {
         didSet { UserDefaults.ghostty.set(isVisible, forKey: Self.visibleKey) }
     }
 
-    /// Projects showing all their sessions rather than the first few; shared across tabs, not persisted.
-    @Published var expandedProjects: Set<String> = []
+    /// Sessions a project shows before "Show more", and how many each click adds.
+    nonisolated static let sessionPageSize = 5
+
+    /// Sessions revealed per project, keyed by cwd; shared across tabs, not persisted.
+    @Published private var revealedSessions: [String: Int] = [:]
 
     /// Directories the sidebar shows, in the order added; it starts empty and each stays until removed.
     @Published private(set) var pinnedProjects: [String] {
@@ -45,6 +48,27 @@ final class ClaudeSidebarState: ObservableObject {
             path.removeLast()
         }
         return path
+    }
+
+    // MARK: - Session paging
+
+    /// Clamped so a rescan that removes sessions can't leave a project claiming more than it has.
+    nonisolated static func visibleSessionCount(revealed: Int?, total: Int) -> Int {
+        min(max(revealed ?? sessionPageSize, sessionPageSize), total)
+    }
+
+    func visibleSessionCount(for cwd: String, total: Int) -> Int {
+        Self.visibleSessionCount(revealed: revealedSessions[cwd], total: total)
+    }
+
+    /// One page more, so a project with many sessions grows in steps rather than all at once.
+    func revealMoreSessions(for cwd: String, total: Int) {
+        let shown = visibleSessionCount(for: cwd, total: total)
+        revealedSessions[cwd] = min(shown + Self.sessionPageSize, total)
+    }
+
+    func collapseSessions(for cwd: String) {
+        revealedSessions[cwd] = nil
     }
 
     // MARK: - Pending spawns

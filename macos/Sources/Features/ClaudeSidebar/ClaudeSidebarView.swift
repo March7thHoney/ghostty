@@ -10,9 +10,6 @@ struct ClaudeSidebarView: View {
     /// Fixed rather than draggable, so per-window widths can't drift and break the shared-panel illusion.
     static let width: CGFloat = 260
 
-    /// Sessions shown per project before the rest hides behind "Show more".
-    static let collapsedSessionLimit = 5
-
     @ObservedObject private var index = ClaudeSessionIndex.shared
     @ObservedObject private var monitor = ClaudeLiveSessionMonitor.shared
     @ObservedObject private var state = ClaudeSidebarState.shared
@@ -143,12 +140,10 @@ struct ClaudeSidebarView: View {
                             .padding(.vertical, 4)
                     }
 
-                    let expanded = state.expandedProjects.contains(project.cwd)
-                    let visible = expanded
-                        ? project.sessions
-                        : Array(project.sessions.prefix(Self.collapsedSessionLimit))
+                    let total = project.sessions.count
+                    let shown = state.visibleSessionCount(for: project.cwd, total: total)
 
-                    ForEach(visible, id: \.sessionID) { session in
+                    ForEach(project.sessions.prefix(shown), id: \.sessionID) { session in
                         ClaudeSidebarSessionRow(
                             session: session,
                             live: monitor.bySessionID[session.sessionID],
@@ -156,17 +151,13 @@ struct ClaudeSidebarView: View {
                             hostWindow: hostWindow)
                     }
 
-                    if project.sessions.count > Self.collapsedSessionLimit {
+                    let hidden = total - shown
+                    if hidden > 0 || shown > ClaudeSidebarState.sessionPageSize {
                         ClaudeSidebarShowMoreRow(
-                            expanded: expanded,
-                            hiddenCount: project.sessions.count - Self.collapsedSessionLimit
-                        ) {
-                            if expanded {
-                                state.expandedProjects.remove(project.cwd)
-                            } else {
-                                state.expandedProjects.insert(project.cwd)
-                            }
-                        }
+                            moreCount: min(hidden, ClaudeSidebarState.sessionPageSize),
+                            canShowLess: shown > ClaudeSidebarState.sessionPageSize,
+                            showMore: { state.revealMoreSessions(for: project.cwd, total: total) },
+                            showLess: { state.collapseSessions(for: project.cwd) })
                     }
                 }
             }
@@ -347,31 +338,70 @@ private struct ClaudeSidebarSessionRow: View {
     }
 }
 
-/// The per-project "Show N more" / "Show less" toggle row.
+/// The per-project paging row: one page more on the left, back to the first page on the right.
 private struct ClaudeSidebarShowMoreRow: View {
-    let expanded: Bool
-    let hiddenCount: Int
-    let action: () -> Void
+    let moreCount: Int
+    let canShowLess: Bool
+    let showMore: () -> Void
+    let showLess: () -> Void
 
-    @State private var isHovering = false
+    @State private var hoveringMore = false
+    @State private var hoveringLess = false
 
     var body: some View {
+        HStack(spacing: 4) {
+            if moreCount > 0 {
+                pagingButton(
+                    title: "Show \(moreCount) more",
+                    icon: "chevron.down",
+                    iconLeading: true,
+                    isHovering: hoveringMore,
+                    action: showMore
+                )
+                .onHover { hoveringMore = $0 }
+            }
+
+            Spacer(minLength: 4)
+
+            if canShowLess {
+                pagingButton(
+                    title: "Show less",
+                    icon: "chevron.up",
+                    iconLeading: false,
+                    isHovering: hoveringLess,
+                    action: showLess
+                )
+                .onHover { hoveringLess = $0 }
+            }
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
+        .padding(.vertical, 5)
+    }
+
+    private func pagingButton(
+        title: String,
+        icon: String,
+        iconLeading: Bool,
+        isHovering: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                Text(expanded ? "Show less" : "Show \(hiddenCount) more")
+                if iconLeading { chevron(icon) }
+                Text(title)
                     .font(.system(size: 11))
-                Spacer()
+                if !iconLeading { chevron(icon) }
             }
             .foregroundStyle(isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-            .padding(.leading, 10)
-            .padding(.trailing, 8)
-            .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
+    }
+
+    private func chevron(_ icon: String) -> some View {
+        Image(systemName: icon)
+            .font(.system(size: 9, weight: .semibold))
     }
 }
 
