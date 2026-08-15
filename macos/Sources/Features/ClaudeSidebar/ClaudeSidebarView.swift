@@ -5,6 +5,19 @@ private func claudeSidebarFill(background: Color, opacity: Double) -> Color {
     background.opacity(opacity.clamped(to: 0.001...1))
 }
 
+/// Which highlight a session row gets; the focused tab outranks merely-open sessions.
+enum ClaudeSessionHighlight {
+    case none
+    case open
+    case active
+
+    /// Activeness wins outright: the open set comes from a poll that can lag a tab switch.
+    static func of(isOpen: Bool, isActive: Bool) -> ClaudeSessionHighlight {
+        if isActive { return .active }
+        return isOpen ? .open : .none
+    }
+}
+
 /// Historical Claude Code sessions grouped by working directory, with live activity indicators.
 struct ClaudeSidebarView: View {
     /// Fixed rather than draggable, so per-window widths can't drift and break the shared-panel illusion.
@@ -21,9 +34,22 @@ struct ClaudeSidebarView: View {
     /// The split divider color, used for the boundary and group separators.
     let dividerColor: Color
 
+    /// The focused surface's foreground process, which marks this window's current tab.
+    let activeForegroundPID: Int?
+
     /// Closures because the window and directory both change out from under a SwiftUI view.
     let hostWindow: () -> NSWindow?
     let currentPwd: () -> String?
+
+    private var activePID: pid_t? {
+        activeForegroundPID.flatMap { pid_t(exactly: $0) }
+    }
+
+    /// Both unwrapped, since two nil pids would otherwise compare equal and light up every row.
+    private func isActive(_ live: ClaudeLiveSession?) -> Bool {
+        guard let live, let activePID else { return false }
+        return live.pid == activePID
+    }
 
     /// Pinned projects in recency order, with pinned directories that have no transcripts yet at the end.
     private var displayProjects: [ClaudeProject] {
@@ -144,10 +170,13 @@ struct ClaudeSidebarView: View {
                     let shown = state.visibleSessionCount(for: project.cwd, total: total)
 
                     ForEach(project.sessions.prefix(shown), id: \.sessionID) { session in
+                        let live = monitor.bySessionID[session.sessionID]
                         ClaudeSidebarSessionRow(
                             session: session,
-                            live: monitor.bySessionID[session.sessionID],
-                            isOpen: monitor.openInAppSessionIDs.contains(session.sessionID),
+                            live: live,
+                            highlight: .of(
+                                isOpen: monitor.openInAppSessionIDs.contains(session.sessionID),
+                                isActive: isActive(live)),
                             hostWindow: hostWindow)
                     }
 
@@ -268,8 +297,8 @@ private struct ClaudeSidebarSessionRow: View {
     let session: ClaudeTranscriptSummary
     let live: ClaudeLiveSession?
 
-    /// Open in one of this app's tabs, which marks the row with an accent bar and wash.
-    let isOpen: Bool
+    /// Drives the accent bar and wash: none, open in a tab, or this window's current tab.
+    let highlight: ClaudeSessionHighlight
 
     let hostWindow: () -> NSWindow?
 
@@ -283,8 +312,13 @@ private struct ClaudeSidebarSessionRow: View {
         return formatter
     }()
 
+    /// Green separates this window's current tab from the other sessions merely open in tabs.
+    private var accent: Color {
+        highlight == .active ? Color.green : Color.accentColor
+    }
+
     private var rowFill: Color {
-        if isOpen { return Color.accentColor.opacity(isHovering ? 0.20 : 0.14) }
+        if highlight != .none { return accent.opacity(isHovering ? 0.20 : 0.14) }
         return isHovering ? Color.primary.opacity(0.08) : Color.clear
     }
 
@@ -301,7 +335,7 @@ private struct ClaudeSidebarSessionRow: View {
             HStack(spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(rowTitle)
-                        .font(.system(size: 13, weight: isOpen ? .medium : .regular))
+                        .font(.system(size: 13, weight: highlight == .none ? .regular : .medium))
                         .lineLimit(1)
 
                     if let lastActivity = session.lastActivity {
@@ -326,9 +360,9 @@ private struct ClaudeSidebarSessionRow: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(rowFill)
                 .overlay(alignment: .leading) {
-                    if isOpen {
+                    if highlight != .none {
                         Capsule()
-                            .fill(Color.accentColor)
+                            .fill(accent)
                             .frame(width: 3)
                             .padding(.vertical, 4)
                     }
