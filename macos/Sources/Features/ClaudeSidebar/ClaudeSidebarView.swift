@@ -34,19 +34,21 @@ struct ClaudeSidebarView: View {
     /// The split divider color, used for the boundary and group separators.
     let dividerColor: Color
 
-    /// The focused surface's foreground process, which marks this window's current tab.
-    let activeForegroundPID: Int?
+    /// This window's focused surface, whose foreground process marks the current tab's session.
+    let activeSurface: Ghostty.SurfaceView?
 
     /// Closures because the window and directory both change out from under a SwiftUI view.
     let hostWindow: () -> NSWindow?
     let currentPwd: () -> String?
 
-    private var activePID: pid_t? {
-        activeForegroundPID.flatMap { pid_t(exactly: $0) }
+    /// Read at render time, not snapshotted: a session started after the last layout must still match.
+    @MainActor private var currentTabPID: pid_t? {
+        guard let pid = activeSurface?.surfaceModel?.foregroundPID else { return nil }
+        return pid_t(exactly: pid)
     }
 
     /// Both unwrapped, since two nil pids would otherwise compare equal and light up every row.
-    private func isActive(_ live: ClaudeLiveSession?) -> Bool {
+    private func isActive(_ live: ClaudeLiveSession?, activePID: pid_t?) -> Bool {
         guard let live, let activePID else { return false }
         return live.pid == activePID
     }
@@ -77,7 +79,7 @@ struct ClaudeSidebarView: View {
             if projects.isEmpty {
                 emptyState
             } else {
-                sessionList(projects)
+                sessionList(projects, activePID: currentTabPID)
             }
         }
         .frame(width: Self.width)
@@ -144,7 +146,7 @@ struct ClaudeSidebarView: View {
         .padding(.horizontal, 16)
     }
 
-    private func sessionList(_ projects: [ClaudeProject]) -> some View {
+    private func sessionList(_ projects: [ClaudeProject], activePID: pid_t?) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 1) {
                 ForEach(projects) { project in
@@ -176,7 +178,7 @@ struct ClaudeSidebarView: View {
                             live: live,
                             highlight: .of(
                                 isOpen: monitor.openInAppSessionIDs.contains(session.sessionID),
-                                isActive: isActive(live)),
+                                isActive: isActive(live, activePID: activePID)),
                             hostWindow: hostWindow)
                     }
 

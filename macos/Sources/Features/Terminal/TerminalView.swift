@@ -99,7 +99,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                                 backgroundColor: ghostty.config.backgroundColor,
                                 backgroundOpacity: ghostty.config.backgroundOpacity,
                                 dividerColor: ghostty.config.splitDividerColor,
-                                activeForegroundPID: lastFocusedSurface?.value?.surfaceModel?.foregroundPID,
+                                activeSurface: lastFocusedSurface?.value,
                                 hostWindow: { viewModel.hostWindow },
                                 currentPwd: { lastFocusedSurface?.value?.pwd })
                         } else {
