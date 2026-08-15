@@ -64,6 +64,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// Regular terminal windows show the Claude sessions sidebar.
     override var isClaudeSidebarSupported: Bool { true }
 
+    /// Regular terminal windows show the workspace panel.
+    override var isWorkspacePanelSupported: Bool { true }
+
     /// Keeps the tab's Claude activity indicator in sync with the live-session registry.
     private var claudeActivityCancellable: AnyCancellable?
 
@@ -1136,6 +1139,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             initialContentSize.width += (ClaudeSidebarState.shared.isVisible
                 ? ClaudeSidebarView.width
                 : ClaudeSidebarRail.width) + 1
+            initialContentSize.width += (WorkspacePanelState.shared.isVisible
+                ? WorkspacePanelView.width
+                : WorkspacePanelRail.width) + 1
             container.initialContentSize = initialContentSize
         }
 

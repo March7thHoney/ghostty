@@ -39,6 +39,9 @@ protocol TerminalViewModel: ObservableObject {
     /// Whether the Claude sessions sidebar may be shown here; false for the quick terminal.
     var isClaudeSidebarSupported: Bool { get }
 
+    /// Whether the workspace panel may be shown here; false for the quick terminal.
+    var isWorkspacePanelSupported: Bool { get }
+
     /// The window hosting this view, used by the sidebar to open tabs.
     var hostWindow: NSWindow? { get }
 }
@@ -56,6 +59,9 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
     // The Claude sessions sidebar visibility, shared across all windows.
     @ObservedObject private var sidebarState = ClaudeSidebarState.shared
 
+    // The workspace panel visibility, shared across all windows.
+    @ObservedObject private var workspaceState = WorkspacePanelState.shared
+
     /// The most recently focused surface, equal to `focusedSurface` when it is non-nil.
     @State private var lastFocusedSurface: Weak<Ghostty.SurfaceView>?
 
@@ -71,6 +77,11 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
     private var pwdURL: URL? {
         guard let surfacePwd, surfacePwd != "" else { return nil }
         return URL(fileURLWithPath: surfacePwd)
+    }
+
+    /// The focused value drives updates; the weak fallback covers moments the panel itself has focus.
+    private var panelPwd: String? {
+        surfacePwd ?? lastFocusedSurface?.value?.pwd
     }
 
     var body: some View {
@@ -110,6 +121,27 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                 }
 
                 terminalContent
+
+                if viewModel.isWorkspacePanelSupported {
+                    HStack(spacing: 0) {
+                        Rectangle()
+                            .fill(ghostty.config.splitDividerColor)
+                            .frame(width: 1)
+                        if workspaceState.isVisible {
+                            WorkspacePanelView(
+                                backgroundColor: ghostty.config.backgroundColor,
+                                backgroundOpacity: ghostty.config.backgroundOpacity,
+                                dividerColor: ghostty.config.splitDividerColor,
+                                pwd: panelPwd)
+                        } else {
+                            WorkspacePanelRail(
+                                backgroundColor: ghostty.config.backgroundColor,
+                                backgroundOpacity: ghostty.config.backgroundOpacity)
+                        }
+                    }
+                    // Match the terminal's hidden-titlebar treatment so the panel extends under it too.
+                    .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
+                }
             }
         }
     }
