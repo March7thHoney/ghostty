@@ -171,6 +171,31 @@ struct SplitTreeTests {
         #expect(target === view1)
     }
 
+    // MARK: - Inserting
+
+    @Test(arguments: [
+        // (insertDirection, expectedRatio of the left/top side)
+        (SplitTree<MockView>.NewDirection.right, 0.5),
+        (.left, 0.5),
+        (.down, 2.0 / 3.0),
+        (.up, 1.0 / 3.0),
+    ])
+    func insertingRatioDependsOnDirection(
+        insertDirection: SplitTree<MockView>.NewDirection,
+        expectedRatio: Double
+    ) throws {
+        let view1 = MockView()
+        let view2 = MockView()
+        var tree = SplitTree<MockView>(view: view1)
+        tree = try tree.inserting(view: view2, at: view1, direction: insertDirection)
+
+        guard case .split(let s) = tree.root else {
+            Issue.record("unexpected node type")
+            return
+        }
+        #expect(abs(s.ratio - expectedRatio) < 0.001)
+    }
+
     // MARK: - Equalized
 
     @Test func equalizedAdjustsRatioByLeafCount() throws {
@@ -203,9 +228,9 @@ struct SplitTreeTests {
         (.left, .right,
          CGRect(x: 0, y: 0, width: 1000, height: 500), UInt16(50), 0.45),
         (.down, .down,
-         CGRect(x: 0, y: 0, width: 500, height: 1000), UInt16(200), 0.7),
+         CGRect(x: 0, y: 0, width: 500, height: 1000), UInt16(200), 2.0 / 3.0 + 0.2),
         (.up, .down,
-         CGRect(x: 0, y: 0, width: 500, height: 1000), UInt16(50), 0.45),
+         CGRect(x: 0, y: 0, width: 500, height: 1000), UInt16(50), 2.0 / 3.0 - 0.05),
     ])
     func resizingAdjustsRatio(
         resizeDirection: SplitTree<MockView>.Spatial.Direction,
@@ -504,8 +529,12 @@ struct SplitTreeTests {
 
         let topBounds = result.first { $0.view === view1 }!.bounds
         let bottomBounds = result.first { $0.view === view2 }!.bounds
-        #expect(topBounds == CGRect(x: 0, y: 500, width: 500, height: 500))
-        #expect(bottomBounds == CGRect(x: 0, y: 0, width: 500, height: 500))
+        #expect(abs(topBounds.minY - 1000.0 / 3.0) < 0.001)
+        #expect(abs(topBounds.height - 1000.0 * 2.0 / 3.0) < 0.001)
+        #expect(abs(bottomBounds.minY) < 0.001)
+        #expect(abs(bottomBounds.height - 1000.0 / 3.0) < 0.001)
+        #expect(topBounds.width == 500)
+        #expect(bottomBounds.width == 500)
     }
 
     @Test func calculateViewBoundsCustomRatio() throws {
@@ -549,10 +578,33 @@ struct SplitTreeTests {
         let b2 = result.first { $0.view === view2 }!.bounds
         let b3 = result.first { $0.view === view3 }!.bounds
         let b4 = result.first { $0.view === view4 }!.bounds
-        #expect(b1 == CGRect(x: 0, y: 400, width: 500, height: 400))   // top-left
-        #expect(b2 == CGRect(x: 500, y: 400, width: 500, height: 400)) // top-right
-        #expect(b3 == CGRect(x: 0, y: 0, width: 500, height: 400))     // bottom-left
-        #expect(b4 == CGRect(x: 500, y: 0, width: 500, height: 400))   // bottom-right
+        // Vertical splits give the top 2/3 of the height
+        let topHeight = 800.0 * 2.0 / 3.0
+        let bottomHeight = 800.0 / 3.0
+
+        // top-left
+        #expect(b1.minX == 0)
+        #expect(b1.width == 500)
+        #expect(abs(b1.minY - bottomHeight) < 0.001)
+        #expect(abs(b1.height - topHeight) < 0.001)
+
+        // top-right
+        #expect(b2.minX == 500)
+        #expect(b2.width == 500)
+        #expect(abs(b2.minY - bottomHeight) < 0.001)
+        #expect(abs(b2.height - topHeight) < 0.001)
+
+        // bottom-left
+        #expect(b3.minX == 0)
+        #expect(b3.width == 500)
+        #expect(abs(b3.minY) < 0.001)
+        #expect(abs(b3.height - bottomHeight) < 0.001)
+
+        // bottom-right
+        #expect(b4.minX == 500)
+        #expect(b4.width == 500)
+        #expect(abs(b4.minY) < 0.001)
+        #expect(abs(b4.height - bottomHeight) < 0.001)
     }
 
     @Test(arguments: [

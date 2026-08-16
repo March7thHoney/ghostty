@@ -516,22 +516,27 @@ extension SplitTree.Node {
             throw SplitError.viewNotFound
         }
 
-        // Determine split direction and which side the new view goes on
+        // Ratio is the left/top size; vertical splits give the new view 1/3
         let splitDirection: SplitTree.Direction
         let newViewOnLeft: Bool
+        let ratio: Double
         switch direction {
         case .left:
             splitDirection = .horizontal
             newViewOnLeft = true
+            ratio = 0.5
         case .right:
             splitDirection = .horizontal
             newViewOnLeft = false
+            ratio = 0.5
         case .up:
             splitDirection = .vertical
             newViewOnLeft = true
+            ratio = 1.0 / 3.0
         case .down:
             splitDirection = .vertical
             newViewOnLeft = false
+            ratio = 2.0 / 3.0
         }
 
         // Create the new split node
@@ -539,7 +544,7 @@ extension SplitTree.Node {
         let existingNode: Node = .leaf(view: at)
         let newSplit: Node = .split(.init(
             direction: splitDirection,
-            ratio: 0.5,
+            ratio: ratio,
             left: newViewOnLeft ? newNode : existingNode,
             right: newViewOnLeft ? existingNode : newNode
         ))
@@ -758,20 +763,19 @@ extension SplitTree.Node {
                 )
 
             case .vertical:
-                // Split vertically: top / bottom
-                // Note: In our normalized coordinate system, Y increases upward
-                let splitY = bounds.minY + bounds.height * split.ratio
+                // Top / bottom, ratio is the top size, Y increases upward
+                let splitY = bounds.minY + bounds.height * (1 - split.ratio)
                 leftBounds = CGRect(
                     x: bounds.minX,
                     y: splitY,
                     width: bounds.width,
-                    height: bounds.height * (1 - split.ratio)
+                    height: bounds.height * split.ratio
                 )
                 rightBounds = CGRect(
                     x: bounds.minX,
                     y: bounds.minY,
                     width: bounds.width,
-                    height: bounds.height * split.ratio
+                    height: bounds.height * (1 - split.ratio)
                 )
             }
 
