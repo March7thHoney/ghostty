@@ -7122,12 +7122,12 @@ pub const Keybinds = struct {
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = 'd' }, .mods = .{ .super = true } },
-                .{ .new_split = .right },
+                .{ .new_split = .down },
             );
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = 'd' }, .mods = .{ .super = true, .shift = true } },
-                .{ .new_split = .down },
+                .{ .new_split = .right },
             );
             try self.set.put(
                 alloc,

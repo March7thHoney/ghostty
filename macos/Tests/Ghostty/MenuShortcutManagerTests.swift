@@ -8,11 +8,11 @@ struct MenuShortcutManagerTests {
     func unbindShouldDiscardDefault() async throws {
         let config = try TemporaryConfig("keybind = super+d=unbind")
 
-        let item = NSMenuItem(title: "Split Right", action: #selector(BaseTerminalController.splitRight(_:)), keyEquivalent: "d")
+        let item = NSMenuItem(title: "Split Down", action: #selector(BaseTerminalController.splitDown(_:)), keyEquivalent: "d")
         item.keyEquivalentModifierMask = .command
         let manager = await Ghostty.MenuShortcutManager()
         await manager.reset()
-        await manager.syncMenuShortcut(config, action: "new_split:right", menuItem: item)
+        await manager.syncMenuShortcut(config, action: "new_split:down", menuItem: item)
 
         #expect(item.keyEquivalent.isEmpty)
         #expect(item.keyEquivalentModifierMask.isEmpty)
@@ -20,7 +20,7 @@ struct MenuShortcutManagerTests {
         try config.reload("")
 
         await manager.reset()
-        await manager.syncMenuShortcut(config, action: "new_split:right", menuItem: item)
+        await manager.syncMenuShortcut(config, action: "new_split:down", menuItem: item)
 
         #expect(item.keyEquivalent == "d")
         #expect(item.keyEquivalentModifierMask == .command)
