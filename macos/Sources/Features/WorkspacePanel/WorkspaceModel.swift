@@ -57,6 +57,9 @@ final class WorkspaceModel: ObservableObject {
     /// Per-path git badges for the file tree, rebuilt with every status refresh.
     @Published private(set) var gitIndex = GitStatusIndex.empty
 
+    /// The ignored paths the file tree dims, rebuilt with every status refresh.
+    @Published private(set) var ignoreIndex = GitIgnoreIndex.empty
+
     @Published private(set) var selectedGitEntry: GitDiffEntry?
     @Published private(set) var diff: DiffState = .none
 
@@ -118,11 +121,13 @@ final class WorkspaceModel: ObservableObject {
     private func refresh() async {
         let dirs = [root.path] + expandedDirs.sorted()
         async let scanned = Self.scan(dirs: dirs)
+        async let ignored = Self.fetchIgnored(root: root, isGitRepo: isGitRepo)
         let newGit = isGitRepo ? await Self.fetchStatus(root: root) : GitState.notARepo
 
         let (children, denied) = await scanned
         childrenByDir = children
         deniedDirs = denied
+        ignoreIndex = await ignored
         git = newGit
         if case .ready(let snapshot) = newGit {
             gitIndex = GitStatusIndex.build(snapshot: snapshot, root: root.path)
@@ -198,6 +203,18 @@ final class WorkspaceModel: ObservableObject {
         } catch {
             return .failed(error.localizedDescription)
         }
+    }
+
+    /// The ignored paths; dimming is decoration only, so any failure just yields nothing.
+    nonisolated private static func fetchIgnored(root: URL, isGitRepo: Bool) async -> GitIgnoreIndex {
+        guard isGitRepo else { return .empty }
+        // --directory folds a wholly ignored tree into one entry, so build dirs stay cheap.
+        guard let output = try? await GitRunner.run(
+            ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
+            in: root),
+            output.exitCode == 0
+        else { return .empty }
+        return GitIgnoreIndex.parse(output.stdout, root: root.path)
     }
 
     /// Totals against HEAD; a failure here costs the counter only, never the status list.

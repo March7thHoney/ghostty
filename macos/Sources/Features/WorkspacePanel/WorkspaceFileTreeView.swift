@@ -54,6 +54,9 @@ private struct WorkspaceFileTreeRow: View {
     /// The file's own git state, or for a directory the strongest state among its descendants.
     private var badge: GitBadge? { model.gitIndex.badge(for: node.path) }
 
+    /// Ignored rows stay readable but recede, the way VS Code dims them.
+    private var isIgnored: Bool { model.ignoreIndex.isIgnored(node.path) }
+
     private var rowFill: Color {
         if isSelected { return Color.accentColor.opacity(isHovering ? 0.20 : 0.14) }
         return isHovering ? Color.primary.opacity(0.08) : Color.clear
@@ -117,6 +120,7 @@ private struct WorkspaceFileTreeRow: View {
             .padding(.leading, CGFloat(depth) * 12 + 6)
             .padding(.trailing, 8)
             .padding(.vertical, 3)
+            .opacity(isIgnored ? 0.45 : 1)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
