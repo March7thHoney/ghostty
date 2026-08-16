@@ -72,10 +72,9 @@ enum ClaudeSidebarCoordinator {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: cwd)])
     }
 
-    /// VS Code's location, nil when it isn't installed.
-    static var vsCodeURL: URL? {
+    /// VS Code's location, nil when it isn't installed; resolved once since the panel header reads it per render.
+    static let vsCodeURL: URL? =
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode")
-    }
 
     /// Open the project directory in VS Code.
     static func openInVSCode(cwd: String) {

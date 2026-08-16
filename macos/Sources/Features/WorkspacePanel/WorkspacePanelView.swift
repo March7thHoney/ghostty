@@ -22,6 +22,11 @@ struct WorkspacePanelView: View {
     /// The focused surface's working directory, which decides the workspace shown.
     let pwd: String?
 
+    /// The workspace this panel renders; also the directory the VS Code button opens.
+    private var model: WorkspaceModel? {
+        WorkspaceRegistry.shared.model(forPwd: pwd)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -30,7 +35,7 @@ struct WorkspacePanelView: View {
                 .fill(dividerColor)
                 .frame(height: 1)
 
-            if let model = WorkspaceRegistry.shared.model(forPwd: pwd) {
+            if let model {
                 WorkspacePanelContent(model: model, dividerColor: dividerColor)
                     .id(model.root.path)
             } else {
@@ -60,6 +65,19 @@ struct WorkspacePanelView: View {
             }
             .buttonStyle(WorkspacePanelIconButtonStyle(isActive: state.selectedTab == .git))
             .help("Git status")
+
+            if let root = model?.root, ClaudeSidebarCoordinator.vsCodeURL != nil {
+                Button {
+                    ClaudeSidebarCoordinator.openInVSCode(cwd: root.path)
+                } label: {
+                    // Smaller than the 12pt symbols beside it: a solid mark carries more visual weight.
+                    VSCodeLogo()
+                        .fill(style: FillStyle(eoFill: true))
+                        .frame(width: 10, height: 10)
+                }
+                .buttonStyle(WorkspacePanelIconButtonStyle())
+                .help("Open in VS Code")
+            }
 
             Spacer()
 
