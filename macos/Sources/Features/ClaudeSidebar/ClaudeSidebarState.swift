@@ -71,6 +71,38 @@ final class ClaudeSidebarState: ObservableObject {
         revealedSessions[cwd] = nil
     }
 
+    // MARK: - Conversation clipboard
+
+    /// What "Copy Conversation" grabbed; in-memory only, so a stale ID can't survive a relaunch.
+    struct CopiedConversation: Equatable {
+        let sessionID: String
+        let title: String
+        let sourceCwd: String
+    }
+
+    /// Kept after paste, so one copy can seed several projects.
+    @Published private(set) var copiedConversation: CopiedConversation?
+
+    func copyConversation(sessionID: String, title: String, sourceCwd: String) {
+        copiedConversation = CopiedConversation(
+            sessionID: sessionID, title: title, sourceCwd: sourceCwd)
+    }
+
+    /// Deleting the copied conversation empties the clipboard, so paste can't fork a missing file.
+    func forgetCopiedConversation(sessionID: String) {
+        guard copiedConversation?.sessionID == sessionID else { return }
+        copiedConversation = nil
+    }
+
+    /// Menus don't truncate, so a long title is clipped here rather than stretching the item.
+    nonisolated static func pasteMenuTitle(copiedTitle: String?) -> String {
+        guard let copiedTitle else { return "Paste Conversation" }
+        let clipped = copiedTitle.count > 40
+            ? copiedTitle.prefix(40) + "…"
+            : copiedTitle[...]
+        return "Paste Conversation \u{201C}\(clipped)\u{201D}"
+    }
+
     // MARK: - Pending spawns
 
     /// A tab whose Claude is still starting, so the pid search can't find it and a second click would duplicate it.

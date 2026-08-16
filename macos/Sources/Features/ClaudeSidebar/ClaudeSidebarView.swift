@@ -244,6 +244,9 @@ private struct ClaudeSidebarProjectHeader: View {
     let project: ClaudeProject
     let hostWindow: () -> NSWindow?
 
+    /// Subscribed so a copy re-renders the cached menu content and un-disables the paste item.
+    @ObservedObject private var state = ClaudeSidebarState.shared
+
     @State private var isHovering = false
 
     var body: some View {
@@ -286,6 +289,13 @@ private struct ClaudeSidebarProjectHeader: View {
                 ClaudeSidebarCoordinator.openInVSCode(cwd: project.cwd)
             }
             .disabled(ClaudeSidebarCoordinator.vsCodeURL == nil)
+            Divider()
+            Button(ClaudeSidebarState.pasteMenuTitle(copiedTitle: state.copiedConversation?.title)) {
+                guard let copied = state.copiedConversation else { return }
+                ClaudeSidebarCoordinator.pasteConversation(
+                    sessionID: copied.sessionID, into: project.cwd, from: hostWindow())
+            }
+            .disabled(state.copiedConversation == nil)
             Divider()
             Button("Remove from Sidebar") {
                 ClaudeSidebarState.shared.unpinProject(project.cwd)
@@ -358,6 +368,19 @@ private struct ClaudeSidebarSessionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            // Captures the rendered title, so the paste menu names exactly what the user grabbed.
+            Button("Copy Conversation") {
+                ClaudeSidebarState.shared.copyConversation(
+                    sessionID: session.sessionID, title: rowTitle, sourceCwd: session.cwd)
+            }
+            Divider()
+            // A running session still owns its transcript; deletion is offered once it exits.
+            Button("Delete Conversation…") {
+                ClaudeSidebarCoordinator.deleteConversation(session: session, from: hostWindow())
+            }
+            .disabled(live != nil)
+        }
         .background(
             RoundedRectangle(cornerRadius: 6)
                 .fill(rowFill)

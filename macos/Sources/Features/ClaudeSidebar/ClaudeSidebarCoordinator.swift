@@ -86,6 +86,81 @@ enum ClaudeSidebarCoordinator {
             configuration: NSWorkspace.OpenConfiguration())
     }
 
+    /// `--fork-session` gives the resume a fresh ID, so the copy lands under the target cwd untouched.
+    nonisolated static func forkCommand(sessionID: String) -> String {
+        "claude --resume \(Ghostty.Shell.quote(sessionID)) --fork-session"
+    }
+
+    /// Open a new tab forking a copied conversation into a project.
+    static func pasteConversation(sessionID: String, into cwd: String, from window: NSWindow?) {
+        guard directoryExists(cwd) else {
+            alertMissingDirectory(cwd, in: window)
+            return
+        }
+        // No pending-spawn guard: it dedupes by session ID, and a second paste should fork again.
+        guard spawnTab(cwd: cwd, input: forkCommand(sessionID: sessionID), from: window) != nil
+        else { return }
+        ClaudeSidebarState.shared.pinProject(cwd)
+    }
+
+    /// Confirm, then move a conversation's transcript to the Trash.
+    static func deleteConversation(session: ClaudeTranscriptSummary, from window: NSWindow?) {
+        let alert = NSAlert()
+        alert.messageText = "Delete Conversation?"
+        alert.informativeText =
+            "\u{201C}\(session.title ?? "Untitled session")\u{201D} will be moved to the Trash."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Move to Trash")
+        alert.addButton(withTitle: "Cancel")
+
+        let handle: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .alertFirstButtonReturn else { return }
+            trashConversation(session, in: window)
+        }
+
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: handle)
+        } else {
+            handle(alert.runModal())
+        }
+    }
+
+    /// The Trash rather than a straight unlink, so a slip of the mouse stays recoverable.
+    private static func trashConversation(_ session: ClaudeTranscriptSummary, in window: NSWindow?) {
+        let fileManager = FileManager.default
+        do {
+            try fileManager.trashItem(at: session.fileURL, resultingItemURL: nil)
+        } catch {
+            alertDeleteFailed(error, in: window)
+            return
+        }
+
+        // Transcripts can have a same-named sidecar directory; orphaning it would just leak.
+        let sidecar = session.fileURL.deletingPathExtension()
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: sidecar.path, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            try? fileManager.trashItem(at: sidecar, resultingItemURL: nil)
+        }
+
+        ClaudeSidebarState.shared.forgetCopiedConversation(sessionID: session.sessionID)
+        // FSEvents would notice within a second; an explicit rescan drops the row immediately.
+        ClaudeSessionIndex.shared.scheduleRescan()
+    }
+
+    private static func alertDeleteFailed(_ error: Error, in window: NSWindow?) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn't Delete Conversation"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
+
     // MARK: - Helpers
 
     /// The surface and controller whose foreground process is `pid`, across every terminal window.
