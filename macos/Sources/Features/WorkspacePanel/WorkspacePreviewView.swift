@@ -27,9 +27,15 @@ struct WorkspacePreviewView: View {
             case .files:
                 filePreview
             case .git:
-                diffContent
+                diffPane(model.diff)
             }
         }
+    }
+
+    /// The files tab only offers the diff when the selected file actually has changes.
+    private var hasFileChanges: Bool {
+        guard tab == .files, let path = model.selectedFilePath else { return false }
+        return model.gitIndex.badge(for: path) != nil
     }
 
     private var header: some View {
@@ -41,6 +47,26 @@ struct WorkspacePreviewView: View {
                 .truncationMode(.middle)
 
             Spacer()
+
+            if hasFileChanges {
+                Button {
+                    model.setPreviewMode(.content)
+                } label: {
+                    Image(systemName: "doc.text")
+                }
+                .buttonStyle(WorkspacePanelIconButtonStyle(
+                    size: 10, frame: 18, isActive: model.previewMode == .content))
+                .help("Content")
+
+                Button {
+                    model.setPreviewMode(.changes)
+                } label: {
+                    Image(systemName: "plusminus")
+                }
+                .buttonStyle(WorkspacePanelIconButtonStyle(
+                    size: 10, frame: 18, isActive: model.previewMode == .changes))
+                .help("Changes")
+            }
 
             Button {
                 switch tab {
@@ -62,6 +88,14 @@ struct WorkspacePreviewView: View {
 
     @ViewBuilder
     private var filePreview: some View {
+        switch model.previewMode {
+        case .content: fileContent
+        case .changes: diffPane(model.fileDiff)
+        }
+    }
+
+    @ViewBuilder
+    private var fileContent: some View {
         if let preview = model.filePreview {
             if preview.isBinary {
                 centered("Binary file")
@@ -87,8 +121,8 @@ struct WorkspacePreviewView: View {
     // MARK: - Diff
 
     @ViewBuilder
-    private var diffContent: some View {
-        switch model.diff {
+    private func diffPane(_ state: DiffState) -> some View {
+        switch state {
         case .none:
             centered("")
         case .loading:

@@ -29,6 +29,11 @@ struct GitDiffEntry: Equatable {
     let origPath: String?
 }
 
+/// What the file tab's preview pane shows for the selected file.
+enum FilePreviewMode: Equatable {
+    case content, changes
+}
+
 /// One workspace root's file tree and git status, shared by every window on the same root.
 @MainActor
 final class WorkspaceModel: ObservableObject {
@@ -41,7 +46,17 @@ final class WorkspaceModel: ObservableObject {
     @Published private(set) var selectedFilePath: String?
     @Published private(set) var filePreview: FilePreview?
 
+    /// Whether the selected file's preview shows its contents or its diff.
+    @Published private(set) var previewMode: FilePreviewMode = .content
+
+    /// The selected file's diff against HEAD, shown by the files tab.
+    @Published private(set) var fileDiff: DiffState = .none
+
     @Published private(set) var git: GitState = .loading
+
+    /// Per-path git badges for the file tree, rebuilt with every status refresh.
+    @Published private(set) var gitIndex = GitStatusIndex.empty
+
     @Published private(set) var selectedGitEntry: GitDiffEntry?
     @Published private(set) var diff: DiffState = .none
 
@@ -50,6 +65,7 @@ final class WorkspaceModel: ObservableObject {
     private var refreshRunning = false
     private var previewGeneration = 0
     private var diffGeneration = 0
+    private var fileDiffGeneration = 0
 
     /// Touched from deinit, which is nonisolated; only stop()/deinit ever clear it.
     nonisolated(unsafe) private var eventStream: FSEventStreamRef?
@@ -108,6 +124,11 @@ final class WorkspaceModel: ObservableObject {
         childrenByDir = children
         deniedDirs = denied
         git = newGit
+        if case .ready(let snapshot) = newGit {
+            gitIndex = GitStatusIndex.build(snapshot: snapshot, root: root.path)
+        } else {
+            gitIndex = .empty
+        }
 
         reconcileSelections(after: newGit)
     }
@@ -117,6 +138,7 @@ final class WorkspaceModel: ObservableObject {
         if let selected = selectedFilePath {
             if FileManager.default.fileExists(atPath: selected) {
                 loadPreview(for: selected)
+                reconcileFileDiff(for: selected)
             } else {
                 selectFile(nil)
             }
@@ -164,7 +186,11 @@ final class WorkspaceModel: ObservableObject {
             guard output.exitCode == 0 else {
                 return .failed(output.stderr.isEmpty ? "git status failed" : output.stderr)
             }
-            return .ready(GitStatusParser.parse(output.stdout))
+            var snapshot = GitStatusParser.parse(output.stdout)
+            if !snapshot.isClean {
+                snapshot.lineStats = await fetchLineStats(root: root, hasCommits: snapshot.hasCommits)
+            }
+            return .ready(snapshot)
         } catch GitRunner.RunError.gitUnavailable(let reason) {
             return .gitUnavailable(reason)
         } catch GitRunner.RunError.timedOut {
@@ -172,6 +198,17 @@ final class WorkspaceModel: ObservableObject {
         } catch {
             return .failed(error.localizedDescription)
         }
+    }
+
+    /// Totals against HEAD; a failure here costs the counter only, never the status list.
+    nonisolated private static func fetchLineStats(root: URL, hasCommits: Bool) async -> GitLineStats {
+        // Without a first commit HEAD does not resolve, so the index stands in as the base.
+        let base = hasCommits ? "HEAD" : "--cached"
+        guard let output = try? await GitRunner.run(
+            ["diff", "--numstat", "--no-color", "--no-ext-diff", base], in: root),
+            output.exitCode == 0 || output.exitCode == 1
+        else { return GitLineStats() }
+        return GitNumstatParser.parse(output.stdout)
     }
 
     // MARK: - File tree selection
@@ -188,9 +225,27 @@ final class WorkspaceModel: ObservableObject {
 
     func selectFile(_ path: String?) {
         previewGeneration += 1
+        fileDiffGeneration += 1
         selectedFilePath = path
         filePreview = nil
-        if let path { loadPreview(for: path) }
+        fileDiff = .none
+        previewMode = .content
+        guard let path else { return }
+
+        loadPreview(for: path)
+        // A changed file opens on its diff, which is usually why it was opened at all.
+        if gitIndex.badge(for: path) != nil {
+            previewMode = .changes
+            fetchFileDiff(for: path)
+        }
+    }
+
+    func setPreviewMode(_ mode: FilePreviewMode) {
+        guard previewMode != mode else { return }
+        previewMode = mode
+        guard mode == .changes, fileDiff == .none, let path = selectedFilePath else { return }
+        fileDiffGeneration += 1
+        fetchFileDiff(for: path)
     }
 
     private func loadPreview(for path: String) {
@@ -204,6 +259,61 @@ final class WorkspaceModel: ObservableObject {
     private func publishPreview(_ preview: FilePreview, generation: Int) {
         guard generation == previewGeneration, preview.path == selectedFilePath else { return }
         filePreview = preview
+    }
+
+    /// Keep the files tab's diff pane in step with the file's current git state.
+    private func reconcileFileDiff(for path: String) {
+        fileDiffGeneration += 1
+        guard gitIndex.badge(for: path) != nil else {
+            previewMode = .content
+            fileDiff = .none
+            return
+        }
+        // Staying in content mode drops the stale diff, so a later toggle reloads it.
+        if previewMode == .changes {
+            fetchFileDiff(for: path)
+        } else {
+            fileDiff = .none
+        }
+    }
+
+    private func fetchFileDiff(for path: String) {
+        guard let args = treeDiffArgs(for: path) else {
+            fileDiff = .none
+            return
+        }
+
+        let generation = fileDiffGeneration
+        let root = root
+        fileDiff = .loading
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let state = await Self.runDiff(args: args, root: root)
+            await self?.publishFileDiff(state, path: path, generation: generation)
+        }
+    }
+
+    private func publishFileDiff(_ state: DiffState, path: String, generation: Int) {
+        guard generation == fileDiffGeneration, path == selectedFilePath else { return }
+        fileDiff = state
+    }
+
+    /// Untracked files diff against /dev/null; everything else against HEAD, staged changes included.
+    private func treeDiffArgs(for path: String) -> [String]? {
+        let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard path.hasPrefix(prefix) else { return nil }
+        let relative = String(path.dropFirst(prefix.count))
+        guard !relative.isEmpty else { return nil }
+
+        if gitIndex.badge(for: path) == .untracked {
+            return ["diff", "--no-index", "--no-color", "--no-ext-diff", "--", "/dev/null", relative]
+        }
+
+        var hasCommits = true
+        if case .ready(let snapshot) = git { hasCommits = snapshot.hasCommits }
+        return [
+            "diff", hasCommits ? "HEAD" : "--cached",
+            "--no-color", "--no-ext-diff", "--", relative,
+        ]
     }
 
     // MARK: - Diff selection
@@ -223,7 +333,12 @@ final class WorkspaceModel: ObservableObject {
         let generation = diffGeneration
         let root = root
         Task.detached(priority: .userInitiated) { [weak self] in
-            let state = await Self.loadDiff(entry: entry, root: root)
+            let state: DiffState
+            if let args = Self.diffArgs(for: entry) {
+                state = await Self.runDiff(args: args, root: root)
+            } else {
+                state = .failed("Untracked directory; expand it in the file tree")
+            }
             await self?.publishDiff(state, entry: entry, generation: generation)
         }
     }
@@ -233,11 +348,10 @@ final class WorkspaceModel: ObservableObject {
         diff = state
     }
 
-    nonisolated private static func loadDiff(entry: GitDiffEntry, root: URL) async -> DiffState {
+    /// The git args for one selected entry, or nil when it has no single-file diff.
+    nonisolated private static func diffArgs(for entry: GitDiffEntry) -> [String]? {
         // Collapsed untracked directories have no single-file diff.
-        if entry.section == .untracked && entry.path.hasSuffix("/") {
-            return .failed("Untracked directory; expand it in the file tree")
-        }
+        if entry.section == .untracked && entry.path.hasSuffix("/") { return nil }
 
         var args: [String]
         switch entry.section {
@@ -246,11 +360,14 @@ final class WorkspaceModel: ObservableObject {
         case .unstaged:
             args = ["diff", "--no-color", "--no-ext-diff", "--"]
         case .untracked:
-            args = ["diff", "--no-index", "--no-color", "--", "/dev/null"]
+            args = ["diff", "--no-index", "--no-color", "--no-ext-diff", "--", "/dev/null"]
         }
         if let origPath = entry.origPath { args.append(origPath) }
         args.append(entry.path)
+        return args
+    }
 
+    nonisolated private static func runDiff(args: [String], root: URL) async -> DiffState {
         do {
             let output = try await GitRunner.run(args, in: root)
             // The diff family exits 1 to mean "has differences", which is success here.

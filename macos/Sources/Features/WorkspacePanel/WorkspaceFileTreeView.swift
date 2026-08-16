@@ -40,7 +40,7 @@ struct WorkspaceFileTreeView: View {
     }
 }
 
-/// One tree row: disclosure chevron for directories, icon, name, and selection/hover washes.
+/// One tree row: disclosure chevron for directories, icon, name, git badge, and selection/hover washes.
 private struct WorkspaceFileTreeRow: View {
     @ObservedObject var model: WorkspaceModel
     let node: FileTreeNode
@@ -51,6 +51,9 @@ private struct WorkspaceFileTreeRow: View {
     private var isSelected: Bool { model.selectedFilePath == node.path }
     private var isExpanded: Bool { model.expandedDirs.contains(node.path) }
 
+    /// The file's own git state, or for a directory the strongest state among its descendants.
+    private var badge: GitBadge? { model.gitIndex.badge(for: node.path) }
+
     private var rowFill: Color {
         if isSelected { return Color.accentColor.opacity(isHovering ? 0.20 : 0.14) }
         return isHovering ? Color.primary.opacity(0.08) : Color.clear
@@ -59,6 +62,25 @@ private struct WorkspaceFileTreeRow: View {
     private var iconName: String {
         if node.isSymlink { return "link" }
         return node.isDirectory ? "folder" : "doc"
+    }
+
+    /// Files carry the status letter; directories carry a dot, so folded folders still read as changed.
+    @ViewBuilder
+    private var gitBadge: some View {
+        if let badge {
+            Group {
+                if node.isDirectory {
+                    Circle()
+                        .fill(badge.color)
+                        .frame(width: 6, height: 6)
+                } else {
+                    Text(badge.glyph)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(badge.color)
+                }
+            }
+            .frame(width: 12)
+        }
     }
 
     var body: some View {
@@ -84,10 +106,13 @@ private struct WorkspaceFileTreeRow: View {
 
                 Text(node.name)
                     .font(.system(size: 12))
+                    .foregroundStyle(badge.map { AnyShapeStyle($0.color) } ?? AnyShapeStyle(.primary))
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                Spacer(minLength: 0)
+                Spacer(minLength: 4)
+
+                gitBadge
             }
             .padding(.leading, CGFloat(depth) * 12 + 6)
             .padding(.trailing, 8)

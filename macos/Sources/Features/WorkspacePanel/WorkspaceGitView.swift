@@ -96,7 +96,18 @@ struct WorkspaceGitView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Spacer(minLength: 0)
+            Spacer(minLength: 4)
+
+            if !snapshot.lineStats.isZero {
+                HStack(spacing: 5) {
+                    Text("+\(snapshot.lineStats.added)")
+                        .foregroundStyle(.green)
+                    Text("−\(snapshot.lineStats.removed)")
+                        .foregroundStyle(.red)
+                }
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .help("Lines added and removed against HEAD, untracked files excluded")
+            }
         }
         .padding(.leading, 4)
         .padding(.trailing, 8)
@@ -143,31 +154,14 @@ private struct WorkspaceGitFileRow: View {
         return isHovering ? Color.primary.opacity(0.08) : Color.clear
     }
 
-    /// The change this row reports, matching the section it sits in.
-    private var change: GitChange? {
+    /// The badge this row reports, taking the change from the section it sits in.
+    private var badge: GitBadge? {
+        if file.isUnmerged { return .conflicted }
+        if file.isUntracked { return .untracked }
         switch section {
-        case .staged: return file.staged
-        case .unstaged: return file.unstaged
+        case .staged: return file.staged.map(GitBadge.change)
+        case .unstaged: return file.unstaged.map(GitBadge.change)
         case .untracked: return nil
-        }
-    }
-
-    private var glyph: String {
-        if file.isUnmerged { return "!" }
-        if file.isUntracked { return "U" }
-        return change?.glyph ?? ""
-    }
-
-    private var glyphColor: Color {
-        if file.isUnmerged { return .red }
-        if file.isUntracked { return .green }
-        switch change {
-        case .added: return .green
-        case .modified: return .orange
-        case .deleted: return .red
-        case .renamed, .copied: return .blue
-        case .typeChanged: return .purple
-        case nil: return .secondary
         }
     }
 
@@ -199,9 +193,9 @@ private struct WorkspaceGitFileRow: View {
 
                 Spacer(minLength: 4)
 
-                Text(glyph)
+                Text(badge?.glyph ?? "")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(glyphColor)
+                    .foregroundStyle(badge.map { AnyShapeStyle($0.color) } ?? AnyShapeStyle(.secondary))
             }
             .padding(.leading, 10)
             .padding(.trailing, 8)

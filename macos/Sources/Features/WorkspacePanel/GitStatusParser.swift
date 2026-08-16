@@ -54,6 +54,9 @@ struct GitStatusSnapshot: Equatable {
     /// False until the repository has its first commit, which changes valid diff bases.
     var hasCommits = true
 
+    /// Added and removed lines against HEAD, filled in separately after parsing.
+    var lineStats = GitLineStats()
+
     var files: [GitFileStatus] = []
 
     var stagedFiles: [GitFileStatus] { files.filter { $0.staged != nil } }
