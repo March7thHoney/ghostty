@@ -1,13 +1,35 @@
 import Foundation
 import CoreServices
 
-/// The git tab's top-level condition.
+/// One repository's condition in the git tab.
 enum GitState: Equatable {
-    case loading
-    case notARepo
     case gitUnavailable(String)
     case failed(String)
     case ready(GitStatusSnapshot)
+}
+
+/// One discovered repository paired with the status read from it.
+struct RepoStatus: Identifiable, Equatable {
+    var id: String { repo.root }
+
+    let repo: GitRepo
+    let state: GitState
+
+    /// The parsed status, or nil when the read failed.
+    var snapshot: GitStatusSnapshot? {
+        guard case .ready(let snapshot) = state else { return nil }
+        return snapshot
+    }
+
+    /// True when the repository reports no changes at all, which collapses it to one row.
+    var isClean: Bool { snapshot?.isClean ?? false }
+}
+
+/// The git tab's top-level condition across every repository in the workspace.
+enum WorkspaceGitState: Equatable {
+    case loading
+    case noRepos
+    case ready([RepoStatus])
 }
 
 /// The diff pane's condition for the selected git entry.
@@ -24,9 +46,20 @@ struct GitDiffEntry: Equatable {
         case staged, unstaged, untracked
     }
 
+    /// The repository the diff runs in, which is not always the workspace root.
+    let repoRoot: String
+
     let section: Section
+
+    /// Relative to `repoRoot`, the way git reported it.
     let path: String
+
     let origPath: String?
+
+    /// The file's absolute path, for revealing and copying.
+    var absolutePath: String {
+        (repoRoot as NSString).appendingPathComponent(path)
+    }
 }
 
 /// What the file tab's preview pane shows for the selected file.
@@ -52,7 +85,10 @@ final class WorkspaceModel: ObservableObject {
     /// The selected file's diff against HEAD, shown by the files tab.
     @Published private(set) var fileDiff: DiffState = .none
 
-    @Published private(set) var git: GitState = .loading
+    @Published private(set) var git: WorkspaceGitState = .loading
+
+    /// Repository roots the git tab folds away, kept here so same-root windows agree.
+    @Published private(set) var collapsedRepos: Set<String> = []
 
     /// Per-path git badges for the file tree, rebuilt with every status refresh.
     @Published private(set) var gitIndex = GitStatusIndex.empty
@@ -62,6 +98,12 @@ final class WorkspaceModel: ObservableObject {
 
     @Published private(set) var selectedGitEntry: GitDiffEntry?
     @Published private(set) var diff: DiffState = .none
+
+    /// How long a repository walk stands in for the next one; checkouts appear and vanish rarely.
+    private static let discoveryTTL: TimeInterval = 30
+
+    private var discoveredRepos: [GitRepo] = []
+    private var lastDiscovery: Date?
 
     private var started = false
     private var refreshPending = false
@@ -76,7 +118,6 @@ final class WorkspaceModel: ObservableObject {
     init(root: URL, isGitRepo: Bool) {
         self.root = root
         self.isGitRepo = isGitRepo
-        if !isGitRepo { git = .notARepo }
     }
 
     deinit {
@@ -122,24 +163,21 @@ final class WorkspaceModel: ObservableObject {
         let dirs = [root.path] + expandedDirs.sorted()
         async let scanned = Self.scan(dirs: dirs)
         async let ignored = Self.fetchIgnored(root: root, isGitRepo: isGitRepo)
-        let newGit = isGitRepo ? await Self.fetchStatus(root: root) : GitState.notARepo
+        let repos = await currentRepos()
+        let statuses = await Self.fetchStatuses(repos: repos)
 
         let (children, denied) = await scanned
         childrenByDir = children
         deniedDirs = denied
         ignoreIndex = await ignored
-        git = newGit
-        if case .ready(let snapshot) = newGit {
-            gitIndex = GitStatusIndex.build(snapshot: snapshot, root: root.path)
-        } else {
-            gitIndex = .empty
-        }
+        git = statuses.isEmpty ? .noRepos : .ready(statuses)
+        gitIndex = GitStatusIndex.build(statuses: statuses, workspaceRoot: root.path)
 
-        reconcileSelections(after: newGit)
+        reconcileSelections(after: statuses)
     }
 
     /// Keep the preview and diff panes truthful after the world changed underneath them.
-    private func reconcileSelections(after newGit: GitState) {
+    private func reconcileSelections(after statuses: [RepoStatus]) {
         if let selected = selectedFilePath {
             if FileManager.default.fileExists(atPath: selected) {
                 loadPreview(for: selected)
@@ -150,12 +188,14 @@ final class WorkspaceModel: ObservableObject {
         }
 
         guard let entry = selectedGitEntry else { return }
-        if case .ready(let snapshot) = newGit, files(in: entry.section, of: snapshot)
-            .contains(where: { $0.path == entry.path }) {
-            fetchDiff(for: entry)
-        } else {
+        guard let status = statuses.first(where: { $0.repo.root == entry.repoRoot }),
+              case .ready(let snapshot) = status.state,
+              files(in: entry.section, of: snapshot).contains(where: { $0.path == entry.path })
+        else {
             selectGitEntry(nil)
+            return
         }
+        fetchDiff(for: entry)
     }
 
     private func files(in section: GitDiffEntry.Section, of snapshot: GitStatusSnapshot) -> [GitFileStatus] {
@@ -163,6 +203,27 @@ final class WorkspaceModel: ObservableObject {
         case .staged: return snapshot.stagedFiles
         case .unstaged: return snapshot.unstagedFiles
         case .untracked: return snapshot.untrackedFiles
+        }
+    }
+
+    /// The innermost discovered repository containing an absolute path.
+    func repo(containing path: String) -> RepoStatus? {
+        guard case .ready(let statuses) = git else { return nil }
+
+        var best: RepoStatus?
+        for status in statuses {
+            let repoRoot = status.repo.root
+            guard path == repoRoot || path.hasPrefix(repoRoot + "/") else { continue }
+            if best == nil || repoRoot.count > best!.repo.root.count { best = status }
+        }
+        return best
+    }
+
+    func toggleRepoCollapsed(_ repoRoot: String) {
+        if collapsedRepos.contains(repoRoot) {
+            collapsedRepos.remove(repoRoot)
+        } else {
+            collapsedRepos.insert(repoRoot)
         }
     }
 
@@ -181,6 +242,61 @@ final class WorkspaceModel: ObservableObject {
             }
             return (children, denied)
         }.value
+    }
+
+    /// The workspace's repositories, re-walked only once the cached list goes stale.
+    private func currentRepos() async -> [GitRepo] {
+        if let lastDiscovery, Date().timeIntervalSince(lastDiscovery) < Self.discoveryTTL {
+            return discoveredRepos
+        }
+
+        let root = root
+        let isGitRepo = isGitRepo
+        discoveredRepos = await Task.detached(priority: .utility) {
+            GitRepoDiscovery.discover(root: root, isGitRepo: isGitRepo)
+        }.value
+        lastDiscovery = Date()
+        return discoveredRepos
+    }
+
+    /// Read every repository's status concurrently.
+    nonisolated private static func fetchStatuses(repos: [GitRepo]) async -> [RepoStatus] {
+        guard !repos.isEmpty else { return [] }
+
+        var states: [String: GitState] = [:]
+        await withTaskGroup(of: (String, GitState).self) { group in
+            for repo in repos {
+                group.addTask {
+                    (repo.root, await fetchStatus(root: URL(fileURLWithPath: repo.root)))
+                }
+            }
+            for await (repoRoot, state) in group { states[repoRoot] = state }
+        }
+
+        let nested = Set(repos.filter { !$0.isWorkspaceRoot }.map(\.root))
+        return repos.map { repo in
+            var state = states[repo.root] ?? .failed("git status failed")
+            if repo.isWorkspaceRoot, case .ready(var snapshot) = state {
+                snapshot.files = filteringNested(snapshot.files, repoRoot: repo.root, nested: nested)
+                state = .ready(snapshot)
+            }
+            return RepoStatus(repo: repo, state: state)
+        }
+    }
+
+    /// Drop the single untracked directory git reports for a nested repo listed on its own.
+    nonisolated private static func filteringNested(
+        _ files: [GitFileStatus],
+        repoRoot: String,
+        nested: Set<String>
+    ) -> [GitFileStatus] {
+        guard !nested.isEmpty else { return files }
+        return files.filter { file in
+            guard file.isUntracked, file.path.hasSuffix("/") else { return true }
+            var absolute = (repoRoot as NSString).appendingPathComponent(file.path)
+            while absolute.count > 1 && absolute.hasSuffix("/") { absolute.removeLast() }
+            return !nested.contains(absolute)
+        }
     }
 
     nonisolated private static func fetchStatus(root: URL) async -> GitState {
@@ -295,16 +411,15 @@ final class WorkspaceModel: ObservableObject {
     }
 
     private func fetchFileDiff(for path: String) {
-        guard let args = treeDiffArgs(for: path) else {
+        guard let (args, repoRoot) = treeDiffArgs(for: path) else {
             fileDiff = .none
             return
         }
 
         let generation = fileDiffGeneration
-        let root = root
         fileDiff = .loading
         Task.detached(priority: .userInitiated) { [weak self] in
-            let state = await Self.runDiff(args: args, root: root)
+            let state = await Self.runDiff(args: args, root: URL(fileURLWithPath: repoRoot))
             await self?.publishFileDiff(state, path: path, generation: generation)
         }
     }
@@ -315,22 +430,29 @@ final class WorkspaceModel: ObservableObject {
     }
 
     /// Untracked files diff against /dev/null; everything else against HEAD, staged changes included.
-    private func treeDiffArgs(for path: String) -> [String]? {
-        let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+    private func treeDiffArgs(for path: String) -> (args: [String], repoRoot: String)? {
+        // Whichever repository owns the file runs the diff, nested checkouts included.
+        guard let status = repo(containing: path) else { return nil }
+        let repoRoot = status.repo.root
+        let prefix = repoRoot.hasSuffix("/") ? repoRoot : repoRoot + "/"
         guard path.hasPrefix(prefix) else { return nil }
         let relative = String(path.dropFirst(prefix.count))
         guard !relative.isEmpty else { return nil }
 
         if gitIndex.badge(for: path) == .untracked {
-            return ["diff", "--no-index", "--no-color", "--no-ext-diff", "--", "/dev/null", relative]
+            return (
+                ["diff", "--no-index", "--no-color", "--no-ext-diff", "--", "/dev/null", relative],
+                repoRoot)
         }
 
         var hasCommits = true
-        if case .ready(let snapshot) = git { hasCommits = snapshot.hasCommits }
-        return [
-            "diff", hasCommits ? "HEAD" : "--cached",
-            "--no-color", "--no-ext-diff", "--", relative,
-        ]
+        if case .ready(let snapshot) = status.state { hasCommits = snapshot.hasCommits }
+        return (
+            [
+                "diff", hasCommits ? "HEAD" : "--cached",
+                "--no-color", "--no-ext-diff", "--", relative,
+            ],
+            repoRoot)
     }
 
     // MARK: - Diff selection
@@ -348,11 +470,10 @@ final class WorkspaceModel: ObservableObject {
 
     private func fetchDiff(for entry: GitDiffEntry) {
         let generation = diffGeneration
-        let root = root
         Task.detached(priority: .userInitiated) { [weak self] in
             let state: DiffState
             if let args = Self.diffArgs(for: entry) {
-                state = await Self.runDiff(args: args, root: root)
+                state = await Self.runDiff(args: args, root: URL(fileURLWithPath: entry.repoRoot))
             } else {
                 state = .failed("Untracked directory; expand it in the file tree")
             }

@@ -61,28 +61,33 @@ struct GitStatusIndex: Equatable {
 
     func badge(for absolutePath: String) -> GitBadge? { badges[absolutePath] }
 
-    /// Build from a status snapshot whose paths are relative to `root`.
-    static func build(snapshot: GitStatusSnapshot, root: String) -> GitStatusIndex {
-        let root = trimmingTrailingSlashes(root)
-        let prefix = root.hasSuffix("/") ? root : root + "/"
+    /// Build from every repository in the workspace, each reporting paths relative to its own root.
+    static func build(statuses: [RepoStatus], workspaceRoot: String) -> GitStatusIndex {
+        let workspaceRoot = trimmingTrailingSlashes(workspaceRoot)
         var index = GitStatusIndex()
 
-        for file in snapshot.files {
-            guard let badge = GitBadge(file: file) else { continue }
-            let relative = trimmingTrailingSlashes(file.path)
-            guard !relative.isEmpty else { continue }
+        for status in statuses {
+            guard case .ready(let snapshot) = status.state else { continue }
+            let repoRoot = trimmingTrailingSlashes(status.repo.root)
+            let prefix = repoRoot.hasSuffix("/") ? repoRoot : repoRoot + "/"
 
-            let absolute = prefix + relative
-            index.badges[absolute] = badge
+            for file in snapshot.files {
+                guard let badge = GitBadge(file: file) else { continue }
+                let relative = trimmingTrailingSlashes(file.path)
+                guard !relative.isEmpty else { continue }
 
-            // Roll the badge up through every ancestor, stopping before the root's own row-less path.
-            var parent = (absolute as NSString).deletingLastPathComponent
-            while parent.count > root.count, parent.hasPrefix(root) {
-                if let existing = index.badges[parent], existing.rollupRank >= badge.rollupRank {
-                    break
+                let absolute = prefix + relative
+                index.badges[absolute] = badge
+
+                // Roll up to the workspace root, not the repo's, so nested repos mark their folders.
+                var parent = (absolute as NSString).deletingLastPathComponent
+                while parent.count > workspaceRoot.count, parent.hasPrefix(workspaceRoot) {
+                    if let existing = index.badges[parent], existing.rollupRank >= badge.rollupRank {
+                        break
+                    }
+                    index.badges[parent] = badge
+                    parent = (parent as NSString).deletingLastPathComponent
                 }
-                index.badges[parent] = badge
-                parent = (parent as NSString).deletingLastPathComponent
             }
         }
 
