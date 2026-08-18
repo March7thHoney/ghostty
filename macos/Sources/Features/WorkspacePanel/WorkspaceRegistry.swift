@@ -17,7 +17,7 @@ final class WorkspaceRegistry {
     private static let maxLiveModels = 4
 
     /// The shared model for the workspace containing pwd, created and started on first use.
-    func model(forPwd pwd: String?) -> WorkspaceModel? {
+    func model(forPwd pwd: String?) async -> WorkspaceModel? {
         guard let pwd, !pwd.isEmpty else { return nil }
         let normalized = Self.normalize(pwd)
 
@@ -25,7 +25,10 @@ final class WorkspaceRegistry {
         if let cached = rootCache[normalized] {
             resolved = cached
         } else {
-            resolved = Self.resolveRoot(forPwd: normalized)
+            // The walk stats every ancestor, which takes seconds on a network mount.
+            resolved = await Task.detached(priority: .userInitiated) {
+                Self.resolveRoot(forPwd: normalized)
+            }.value
             if resolved.isGitRepo { rootCache[normalized] = resolved }
         }
 

@@ -15,6 +15,13 @@ enum GitRunner {
 
     private static let gitPath = "/usr/bin/git"
 
+    /// A local checkout answers in milliseconds; a network mount needs tens of seconds per command.
+    private static let localTimeout: TimeInterval = 15
+    private static let networkTimeout: TimeInterval = 60
+
+    /// How long a terminated git gets to wind down before it is killed outright.
+    private static let killGrace: TimeInterval = 2
+
     /// One probe per launch; `/usr/bin/git` is a CLT shim that fails with a hint when tools are missing.
     private static let unavailableReason: Task<String?, Never> = Task {
         guard let output = try? await spawn(["--version"], in: nil, timeoutSeconds: 10) else {
@@ -30,16 +37,24 @@ enum GitRunner {
     static func run(
         _ args: [String],
         in root: URL,
-        timeoutSeconds: TimeInterval = 15
+        timeoutSeconds: TimeInterval? = nil
     ) async throws -> Output {
         if let reason = await unavailableReason.value { throw RunError.gitUnavailable(reason) }
+        let isLocal = await VolumeIndex.shared.isLocal(root.path)
         return try await spawn(
-            ["-C", root.path, "--no-optional-locks"] + args,
+            statTuning(isLocal: isLocal) + ["-C", root.path, "--no-optional-locks"] + args,
             in: root,
-            timeoutSeconds: timeoutSeconds)
+            timeoutSeconds: timeoutSeconds ?? (isLocal ? localTimeout : networkTimeout))
     }
 
-    /// Spawn git once, racing completion against a timeout that terminates the process.
+    /// A network mount invents its own inodes and ctimes, so every index entry looks dirty to git.
+    private static func statTuning(isLocal: Bool) -> [String] {
+        // Comparing size and mtime alone keeps a re-hash of the whole worktree off the wire.
+        guard !isLocal else { return [] }
+        return ["-c", "core.checkStat=minimal", "-c", "core.trustctime=false"]
+    }
+
+    /// Spawn git once, with a watchdog that terminates and then kills a run that overruns its timeout.
     private static func spawn(
         _ args: [String],
         in cwd: URL?,
@@ -61,20 +76,26 @@ enum GitRunner {
         process.standardError = stderrPipe
         process.standardInput = FileHandle.nullDevice
 
-        return try await withThrowingTaskGroup(of: Output?.self) { group in
-            group.addTask { try await execute(process, stdout: stdoutPipe, stderr: stderrPipe) }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
-                return nil
-            }
-            guard let winner = try await group.next(), let output = winner else {
-                if process.isRunning { process.terminate() }
-                group.cancelAll()
-                throw RunError.timedOut
-            }
-            group.cancelAll()
-            return output
+        let expired = Flag()
+        let watchdog = Task {
+            try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+            expired.set()
+            await stop(process)
         }
+        defer { watchdog.cancel() }
+
+        let output = try await execute(process, stdout: stdoutPipe, stderr: stderrPipe)
+        if expired.isSet { throw RunError.timedOut }
+        return output
+    }
+
+    /// SIGTERM first, then SIGKILL: git wedged on a stalled mount can outlive the polite signal.
+    private static func stop(_ process: Process) async {
+        guard process.isRunning else { return }
+        process.terminate()
+        try? await Task.sleep(nanoseconds: UInt64(killGrace * 1_000_000_000))
+        guard process.isRunning else { return }
+        kill(process.processIdentifier, SIGKILL)
     }
 
     /// Drain both pipes concurrently with exit; sequential reads deadlock once a pipe buffer fills.
@@ -106,9 +127,62 @@ enum GitRunner {
                 .trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
+    /// Event-driven reads; a blocking readToEnd holds a cooperative-pool thread until git exits.
     private static func drain(_ handle: FileHandle) async -> Data {
-        await Task.detached(priority: .utility) {
-            (try? handle.readToEnd()) ?? Data()
-        }.value
+        let buffer = ByteBuffer()
+        return await withCheckedContinuation { continuation in
+            handle.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if !chunk.isEmpty {
+                    buffer.append(chunk)
+                    return
+                }
+                // An empty read is EOF, which is the only place this continuation resumes.
+                handle.readabilityHandler = nil
+                continuation.resume(returning: buffer.contents)
+            }
+        }
+    }
+
+    /// Accumulator for the reader callback, which Foundation serializes on a queue of its own.
+    private final class ByteBuffer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+
+        var contents: Data { lock.withLock { data } }
+
+        func append(_ chunk: Data) { lock.withLock { data.append(chunk) } }
+    }
+
+    /// One-way flag the watchdog raises and the spawning task reads.
+    private final class Flag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+
+        var isSet: Bool { lock.withLock { value } }
+
+        func set() { lock.withLock { value = true } }
+    }
+}
+
+/// Remembers which roots sit on a network mount, where git costs orders of magnitude more.
+private actor VolumeIndex {
+    static let shared = VolumeIndex()
+
+    private var cache: [String: Bool] = [:]
+
+    func isLocal(_ path: String) -> Bool {
+        if let cached = cache[path] { return cached }
+        let local = Self.probe(path)
+        cache[path] = local
+        return local
+    }
+
+    /// MNT_LOCAL covers APFS and HFS but not sshfs, NFS or SMB, which is the split that matters here.
+    private static func probe(_ path: String) -> Bool {
+        var info: statfs = .init()
+        // An unreadable mount is treated as local, so a failure here can't slacken the timeouts.
+        guard statfs(path, &info) == 0 else { return true }
+        return info.f_flags & UInt32(MNT_LOCAL) != 0
     }
 }

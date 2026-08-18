@@ -23,9 +23,7 @@ struct WorkspacePanelView: View {
     let pwd: String?
 
     /// The workspace this panel renders; also the directory the VS Code button opens.
-    private var model: WorkspaceModel? {
-        WorkspaceRegistry.shared.model(forPwd: pwd)
-    }
+    @State private var model: WorkspaceModel?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,6 +44,8 @@ struct WorkspacePanelView: View {
         .background(workspacePanelFill(
             background: backgroundColor, opacity: backgroundOpacity))
         .environment(\.colorScheme, NSColor(backgroundColor).isLightColor ? .light : .dark)
+        // Resolving pwd's repository root walks the filesystem, so it stays off the render pass.
+        .task(id: pwd) { model = await WorkspaceRegistry.shared.model(forPwd: pwd) }
     }
 
     private var header: some View {

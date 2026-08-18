@@ -173,17 +173,24 @@ final class WorkspaceModel: ObservableObject {
         git = statuses.isEmpty ? .noRepos : .ready(statuses)
         gitIndex = GitStatusIndex.build(statuses: statuses, workspaceRoot: root.path)
 
-        reconcileSelections(after: statuses)
+        await reconcileSelections(after: statuses)
     }
 
     /// Keep the preview and diff panes truthful after the world changed underneath them.
-    private func reconcileSelections(after statuses: [RepoStatus]) {
+    private func reconcileSelections(after statuses: [RepoStatus]) async {
         if let selected = selectedFilePath {
-            if FileManager.default.fileExists(atPath: selected) {
-                loadPreview(for: selected)
-                reconcileFileDiff(for: selected)
-            } else {
-                selectFile(nil)
+            // One stat costs hundreds of milliseconds on a network mount, so it runs off-thread.
+            let exists = await Task.detached(priority: .utility) {
+                FileManager.default.fileExists(atPath: selected)
+            }.value
+            // The selection can move while that runs, in which case the newer one stands.
+            if selected == selectedFilePath {
+                if exists {
+                    loadPreview(for: selected)
+                    reconcileFileDiff(for: selected)
+                } else {
+                    selectFile(nil)
+                }
             }
         }
 
