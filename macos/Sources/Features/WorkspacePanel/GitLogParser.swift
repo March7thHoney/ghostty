@@ -60,11 +60,11 @@ struct GitCommit: Identifiable, Equatable {
     /// The full message, which the row cannot fit but the detail pane shows.
     let body: String
 
-    /// From `--shortstat`; nil for merges and empty commits, which print no such line.
-    let stats: GitLineStats?
+    /// From the stats pass; nil for merges and empty commits, which print no such line.
+    var stats: GitLineStats?
 
-    /// How many files the commit touched, also from `--shortstat`.
-    let filesChanged: Int?
+    /// How many files the commit touched, also from the stats pass.
+    var filesChanged: Int?
 
     var isMerge: Bool { parents.count > 1 }
 
@@ -73,12 +73,18 @@ struct GitCommit: Identifiable, Equatable {
     var graphNode: GitGraphNode { GitGraphNode(sha: sha, parents: parents) }
 }
 
-/// The one `git log` invocation the history view makes, kept beside the parser that reads it.
+/// What the stats pass adds to a commit once it comes back.
+struct GitCommitStats: Equatable {
+    let lines: GitLineStats
+    let filesChanged: Int?
+}
+
+/// The `git log` invocations the history view makes, kept beside the parser that reads them.
 enum GitLogFormat {
     static let recordSeparator: Character = "\u{1e}"
     static let fieldSeparator: Character = "\u{1f}"
 
-    /// %x1e opens a record and %x1f closes every field, so the --shortstat tail lands after the last one.
+    /// %x1e opens a record and %x1f closes every field, so the body's own newlines stay harmless.
     static let format =
         "%x1e%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%D%x1f%s%x1f%B%x1f"
 
@@ -97,11 +103,25 @@ enum GitLogFormat {
             "--encoding=UTF-8",
             // log.decorate=full would otherwise turn %D into refs/heads/main.
             "--decorate=short",
-            "--shortstat",
             "--format=\(format)",
         ]
         if skip > 0 { args.insert("--skip=\(skip)", at: 2) }
         return args
+    }
+
+    /// The second, best-effort pass: sha plus a shortstat line, and nothing else to carry.
+    static let statsFormat = "%x1e%H%x1f"
+
+    static func statsArgs(revision: String, maxCount: Int) -> [String] {
+        [
+            "log", revision,
+            "--max-count=\(maxCount)",
+            "--topo-order",
+            "--no-show-signature",
+            "--no-color",
+            "--shortstat",
+            "--format=\(statsFormat)",
+        ]
     }
 }
 
@@ -148,6 +168,26 @@ enum GitLogParser {
             body: body.trimmingCharacters(in: .whitespacesAndNewlines),
             stats: parseShortstat(tail),
             filesChanged: parseFilesChanged(tail))
+    }
+
+    /// Map sha to its counts from the stats pass; commits git reported nothing for stay absent.
+    nonisolated static func parseStats(_ data: Data) -> [String: GitCommitStats] {
+        var result: [String: GitCommitStats] = [:]
+
+        for record in String(decoding: data, as: UTF8.self)
+            .split(separator: GitLogFormat.recordSeparator, omittingEmptySubsequences: true) {
+            let pieces = record.split(
+                separator: GitLogFormat.fieldSeparator, maxSplits: 1,
+                omittingEmptySubsequences: false)
+            guard pieces.count == 2, !pieces[0].isEmpty else { continue }
+
+            let tail = String(pieces[1])
+            guard let lines = parseShortstat(tail) else { continue }
+            result[String(pieces[0])] = GitCommitStats(
+                lines: lines, filesChanged: parseFilesChanged(tail))
+        }
+
+        return result
     }
 
     // MARK: - Fields

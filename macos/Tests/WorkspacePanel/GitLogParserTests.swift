@@ -17,7 +17,7 @@ struct GitLogParserTests {
         refs: String = "",
         subject: String = "feat: add a thing",
         body: String = "feat: add a thing",
-        tail: String = "\n\n 4 files changed, 116 insertions(+), 32 deletions(-)\n"
+        tail: String = ""
     ) -> String {
         let fields = [sha, short, parents, author, email, date, refs, subject, body]
         return Self.recordMark + fields.joined(separator: Self.unit) + Self.unit + tail
@@ -39,8 +39,8 @@ struct GitLogParserTests {
         #expect(commit.authorEmail == "ada@example.com")
         #expect(commit.date != nil)
         #expect(commit.subject == "feat: add a thing")
-        #expect(commit.stats == GitLineStats(added: 116, removed: 32))
-        #expect(commit.filesChanged == 4)
+        // Counts arrive later from the stats pass, so the first pass leaves them empty.
+        #expect(commit.stats == nil)
         #expect(!commit.isMerge)
     }
 
@@ -53,15 +53,12 @@ struct GitLogParserTests {
         #expect(commits[0].subject == "chore: quiet commit")
     }
 
-    @Test func mergeRecordHasNoStats() {
-        let commits = parse(record(parents: "cccccccc dddddddd", tail: "\n"))
+    @Test func parsesSeveralParents() {
+        let commits = parse(record(parents: "cccccccc dddddddd"))
 
         #expect(commits.count == 1)
         #expect(commits[0].isMerge)
         #expect(commits[0].parents == ["cccccccc", "dddddddd"])
-        // Nil, not zero: a merge printing nothing is different from a commit that changed nothing.
-        #expect(commits[0].stats == nil)
-        #expect(commits[0].filesChanged == nil)
     }
 
     @Test func parsesSingularAndPartialShortstat() {
@@ -79,6 +76,26 @@ struct GitLogParserTests {
         #expect(GitLogParser.parseShortstat("   \n") == nil)
     }
 
+    @Test func statsPassMapsShasToTheirCounts() {
+        let mark = Self.recordMark
+        let unit = Self.unit
+        let data = Data((
+            mark + "aaaa" + unit + "\n 4 files changed, 116 insertions(+), 32 deletions(-)\n"
+                + mark + "bbbb" + unit + "\n 1 file changed, 1 insertion(+)\n"
+                // A merge prints no shortstat, so it simply has no entry to find.
+                + mark + "cccc" + unit + "\n"
+        ).utf8)
+
+        let stats = GitLogParser.parseStats(data)
+
+        #expect(stats.count == 2)
+        #expect(stats["aaaa"] == GitCommitStats(
+            lines: GitLineStats(added: 116, removed: 32), filesChanged: 4))
+        #expect(stats["bbbb"] == GitCommitStats(
+            lines: GitLineStats(added: 1, removed: 0), filesChanged: 1))
+        #expect(stats["cccc"] == nil)
+    }
+
     @Test func parsesTheFileCountInBothSingularAndPlural() {
         #expect(GitLogParser.parseFilesChanged("\n 1 file changed, 1 insertion(+)\n") == 1)
         #expect(
@@ -93,7 +110,6 @@ struct GitLogParserTests {
 
         #expect(commits.count == 1)
         #expect(commits[0].body == body)
-        #expect(commits[0].stats == GitLineStats(added: 116, removed: 32))
     }
 
     /// The tail is cut from the last separator, so a body containing one cannot hide it.
@@ -102,7 +118,6 @@ struct GitLogParserTests {
 
         #expect(commits.count == 1)
         #expect(commits[0].body == "subject\n\nweird \u{1f} body")
-        #expect(commits[0].stats == GitLineStats(added: 116, removed: 32))
     }
 
     @Test func parsesSeveralRecords() {
@@ -170,5 +185,8 @@ struct GitLogParserTests {
         for flag in ["--decorate=short", "--no-color", "--encoding=UTF-8", "--topo-order"] {
             #expect(first.contains(flag))
         }
+        // --shortstat diffs every commit, which is minutes on a binary-heavy repository.
+        #expect(!first.contains("--shortstat"))
+        #expect(GitLogFormat.statsArgs(revision: "abc123", maxCount: 50).contains("--shortstat"))
     }
 }

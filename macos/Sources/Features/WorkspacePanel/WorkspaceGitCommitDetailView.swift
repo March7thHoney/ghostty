@@ -4,6 +4,9 @@ import SwiftUI
 struct WorkspaceGitCommitDetailView: View {
     let commit: GitCommit
 
+    /// Used when the stats pass produced nothing, so the count still comes from the loaded patch.
+    let fallbackFileCount: Int?
+
     /// The body minus the subject git repeats at its head, so it is not shown twice.
     private var trailingBody: String {
         var rest = Substring(commit.body)
@@ -12,7 +15,7 @@ struct WorkspaceGitCommitDetailView: View {
     }
 
     private var fileSummary: String? {
-        guard let count = commit.filesChanged else { return nil }
+        guard let count = commit.filesChanged ?? fallbackFileCount else { return nil }
         return count == 1 ? "1 file changed" : "\(count) files changed"
     }
 

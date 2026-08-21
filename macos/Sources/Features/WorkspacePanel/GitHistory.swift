@@ -90,6 +90,25 @@ enum GitHistoryLoader {
         }
     }
 
+    /// A binary-heavy repo can spend minutes diffing every commit, so the stats pass gets a leash.
+    static let statsTimeout: TimeInterval = 5
+
+    /// Best-effort per-commit counts; a failure costs the numbers only, never the history itself.
+    nonisolated static func stats(
+        root: URL, revision: String, count: Int
+    ) async -> [String: GitCommitStats]? {
+        guard let output = try? await GitRunner.run(
+            GitLogFormat.statsArgs(revision: revision, maxCount: count),
+            in: root,
+            timeoutSeconds: statsTimeout),
+            output.exitCode == 0
+        else { return nil }
+        return GitLogParser.parseStats(output.stdout)
+    }
+
+    /// A single commit's patch can run to hundreds of megabytes, well past anything we render.
+    static let maxDiffBytes = 4 * 1024 * 1024
+
     /// The whole commit's patch, which already names every file it touched.
     nonisolated static func commitDiffArgs(sha: String) -> [String] {
         [

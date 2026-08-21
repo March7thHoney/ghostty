@@ -126,6 +126,9 @@ final class WorkspaceModel: ObservableObject {
     /// False while the history view is off screen, where running git log would be pure waste.
     private var historyActive = false
 
+    /// Repositories whose stats pass ran out of time; retrying it every refresh would be pure waste.
+    private var historyStatsUnavailable: Set<String> = []
+
     private var historyGeneration = 0
     private var commitDiffGeneration = 0
 
@@ -543,14 +546,18 @@ final class WorkspaceModel: ObservableObject {
         return args
     }
 
-    nonisolated private static func runDiff(args: [String], root: URL) async -> DiffState {
+    nonisolated private static func runDiff(
+        args: [String], root: URL, maxOutputBytes: Int? = nil
+    ) async -> DiffState {
         do {
-            let output = try await GitRunner.run(args, in: root)
-            // The diff family exits 1 to mean "has differences", which is success here.
-            guard output.exitCode == 0 || output.exitCode == 1 else {
+            let output = try await GitRunner.run(args, in: root, maxOutputBytes: maxOutputBytes)
+            // A run stopped at its byte cap was killed mid-write, so its exit code means nothing.
+            guard output.truncated || output.exitCode == 0 || output.exitCode == 1 else {
                 return .failed(output.stderr.isEmpty ? "git diff failed" : output.stderr)
             }
-            return .ready(DiffParser.parse(String(decoding: output.stdout, as: UTF8.self)))
+            var diff = DiffParser.parse(String(decoding: output.stdout, as: UTF8.self))
+            if output.truncated { diff.truncated = true }
+            return .ready(diff)
         } catch GitRunner.RunError.gitUnavailable(let reason) {
             return .failed(reason)
         } catch GitRunner.RunError.timedOut {
@@ -606,6 +613,8 @@ final class WorkspaceModel: ObservableObject {
 
     /// The reload button, which re-runs git log locally and never touches the network.
     func reloadHistory() {
+        // A manual reload is also the way to retry stats on a repository we gave up on.
+        historyStatsUnavailable.removeAll()
         loadHistory()
     }
 
@@ -692,7 +701,42 @@ final class WorkspaceModel: ObservableObject {
                 graph: GitGraphBuilder.build(commits.map(\.graphNode)),
                 hasMore: fetch.hasMore))
             reconcileHistorySelection(commits: commits)
+            loadHistoryStats(
+                repoRoot: request.repoRoot, headOid: request.headOid,
+                count: commits.count, generation: request.generation)
         }
+    }
+
+    /// The counts git only produces by diffing every commit, fetched apart so the list never waits.
+    private func loadHistoryStats(
+        repoRoot: String, headOid: String, count: Int, generation: Int
+    ) {
+        guard count > 0, !historyStatsUnavailable.contains(repoRoot) else { return }
+
+        Task.detached(priority: .utility) { [weak self] in
+            let stats = await GitHistoryLoader.stats(
+                root: URL(fileURLWithPath: repoRoot), revision: headOid, count: count)
+            await self?.publishHistoryStats(stats, repoRoot: repoRoot, generation: generation)
+        }
+    }
+
+    private func publishHistoryStats(
+        _ stats: [String: GitCommitStats]?, repoRoot: String, generation: Int
+    ) {
+        guard generation == historyGeneration else { return }
+        guard let stats else {
+            // Too slow once is too slow every time, until the user asks for a reload.
+            historyStatsUnavailable.insert(repoRoot)
+            return
+        }
+        guard case .ready(var page) = history, page.repoRoot == repoRoot else { return }
+
+        for index in page.commits.indices {
+            guard let found = stats[page.commits[index].sha] else { continue }
+            page.commits[index].stats = found.lines
+            page.commits[index].filesChanged = found.filesChanged
+        }
+        history = .ready(page)
     }
 
     /// A rebase can retire the commit the pane is showing, and a stale pane lies.
@@ -746,7 +790,8 @@ final class WorkspaceModel: ObservableObject {
         Task.detached(priority: .userInitiated) { [weak self] in
             let state = await Self.runDiff(
                 args: GitHistoryLoader.commitDiffArgs(sha: sha),
-                root: URL(fileURLWithPath: repoRoot))
+                root: URL(fileURLWithPath: repoRoot),
+                maxOutputBytes: GitHistoryLoader.maxDiffBytes)
             await self?.publishCommitDiff(state, sha: sha, generation: generation)
         }
     }

@@ -41,6 +41,8 @@ struct WorkspacePanelView: View {
             }
         }
         .frame(width: Self.width)
+        // SwiftUI does not clip overflow, so one runaway width would otherwise paint over the terminal.
+        .clipped()
         .background(workspacePanelFill(
             background: backgroundColor, opacity: backgroundOpacity))
         .environment(\.colorScheme, NSColor(backgroundColor).isLightColor ? .light : .dark)

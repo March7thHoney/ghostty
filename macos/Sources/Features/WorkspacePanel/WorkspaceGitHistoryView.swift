@@ -38,7 +38,6 @@ struct WorkspaceGitHistoryView: View {
                     repoSummary
                 }
                 .menuStyle(.borderlessButton)
-                .fixedSize()
             } else {
                 repoSummary
             }
@@ -71,11 +70,18 @@ struct WorkspaceGitHistoryView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
 
-            Text(selectedRepo.map(repoLabel) ?? "—")
+            Text(summaryLabel)
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
+    }
+
+    /// One repository needs only its branch, since the breadcrumb already names the workspace.
+    private var summaryLabel: String {
+        guard let repo = selectedRepo else { return "—" }
+        if model.historyRepos.count == 1 { return repo.branch ?? "(detached)" }
+        return repoLabel(repo)
     }
 
     private func repoLabel(_ repo: GitHistoryRepo) -> String {
@@ -311,6 +317,8 @@ struct WorkspaceRefChip: View {
             }
             Text(text)
                 .font(.system(size: 9, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
         .foregroundStyle(isHead ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
         .padding(.horizontal, 4)
@@ -318,7 +326,7 @@ struct WorkspaceRefChip: View {
         .background(
             RoundedRectangle(cornerRadius: 3)
                 .fill(isHead ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.08)))
-        // Without this the chip competes with the subject for the row's width and loses badly.
-        .fixedSize()
+        // Capped rather than fixed: the subject must not squeeze it away, nor it the subject.
+        .frame(maxWidth: 90)
     }
 }

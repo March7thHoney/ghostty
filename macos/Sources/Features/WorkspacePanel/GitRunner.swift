@@ -6,6 +6,9 @@ enum GitRunner {
         let exitCode: Int32
         let stdout: Data
         let stderr: String
+
+        /// True when stdout hit its cap and git was cut off rather than read to the end.
+        var truncated = false
     }
 
     enum RunError: Error {
@@ -37,14 +40,16 @@ enum GitRunner {
     static func run(
         _ args: [String],
         in root: URL,
-        timeoutSeconds: TimeInterval? = nil
+        timeoutSeconds: TimeInterval? = nil,
+        maxOutputBytes: Int? = nil
     ) async throws -> Output {
         if let reason = await unavailableReason.value { throw RunError.gitUnavailable(reason) }
         let isLocal = await VolumeIndex.shared.isLocal(root.path)
         return try await spawn(
             statTuning(isLocal: isLocal) + ["-C", root.path, "--no-optional-locks"] + args,
             in: root,
-            timeoutSeconds: timeoutSeconds ?? (isLocal ? localTimeout : networkTimeout))
+            timeoutSeconds: timeoutSeconds ?? (isLocal ? localTimeout : networkTimeout),
+            maxOutputBytes: maxOutputBytes)
     }
 
     /// A network mount invents its own inodes and ctimes, so every index entry looks dirty to git.
@@ -58,7 +63,8 @@ enum GitRunner {
     private static func spawn(
         _ args: [String],
         in cwd: URL?,
-        timeoutSeconds: TimeInterval
+        timeoutSeconds: TimeInterval,
+        maxOutputBytes: Int? = nil
     ) async throws -> Output {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: gitPath)
@@ -84,8 +90,10 @@ enum GitRunner {
         }
         defer { watchdog.cancel() }
 
-        let output = try await execute(process, stdout: stdoutPipe, stderr: stderrPipe)
-        if expired.isSet { throw RunError.timedOut }
+        let output = try await execute(
+            process, stdout: stdoutPipe, stderr: stderrPipe, maxOutputBytes: maxOutputBytes)
+        // A run cut short at its byte cap is a success with less data, not a timeout.
+        if expired.isSet, !output.truncated { throw RunError.timedOut }
         return output
     }
 
@@ -102,10 +110,16 @@ enum GitRunner {
     private static func execute(
         _ process: Process,
         stdout: Pipe,
-        stderr: Pipe
+        stderr: Pipe,
+        maxOutputBytes: Int?
     ) async throws -> Output {
-        async let stdoutData = drain(stdout.fileHandleForReading)
-        async let stderrData = drain(stderr.fileHandleForReading)
+        // Once we stop reading, git blocks writing into a full pipe, so it has to be cut off.
+        let overflow = Flag()
+        async let stdoutData = drain(stdout.fileHandleForReading, limit: maxOutputBytes) {
+            overflow.set()
+            if process.isRunning { process.terminate() }
+        }
+        async let stderrData = drain(stderr.fileHandleForReading, limit: nil, onLimit: nil)
 
         let exitCode: Int32 = try await withCheckedThrowingContinuation { continuation in
             process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
@@ -124,17 +138,27 @@ enum GitRunner {
             exitCode: exitCode,
             stdout: await stdoutData,
             stderr: String(decoding: await stderrData, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines))
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            truncated: overflow.isSet)
     }
 
     /// Event-driven reads; a blocking readToEnd holds a cooperative-pool thread until git exits.
-    private static func drain(_ handle: FileHandle) async -> Data {
+    private static func drain(
+        _ handle: FileHandle,
+        limit: Int?,
+        onLimit: (@Sendable () -> Void)?
+    ) async -> Data {
         let buffer = ByteBuffer()
         return await withCheckedContinuation { continuation in
             handle.readabilityHandler = { handle in
                 let chunk = handle.availableData
                 if !chunk.isEmpty {
                     buffer.append(chunk)
+                    // Stopping here bounds memory no matter how much git still wants to write.
+                    guard let limit, buffer.count >= limit else { return }
+                    handle.readabilityHandler = nil
+                    onLimit?()
+                    continuation.resume(returning: buffer.contents)
                     return
                 }
                 // An empty read is EOF, which is the only place this continuation resumes.
@@ -150,6 +174,8 @@ enum GitRunner {
         private var data = Data()
 
         var contents: Data { lock.withLock { data } }
+
+        var count: Int { lock.withLock { data.count } }
 
         func append(_ chunk: Data) { lock.withLock { data.append(chunk) } }
     }

@@ -173,10 +173,16 @@ struct WorkspacePreviewView: View {
     @ViewBuilder
     private func commitDetails(_ sha: String) -> some View {
         if let commit = loadedCommit(sha) {
-            WorkspaceGitCommitDetailView(commit: commit)
+            WorkspaceGitCommitDetailView(commit: commit, fallbackFileCount: loadedDiffFileCount)
         } else {
             centered("Commit is no longer loaded")
         }
+    }
+
+    /// Stands in when the stats pass never landed, which happens on repositories too slow for it.
+    private var loadedDiffFileCount: Int? {
+        guard case .ready(let diff) = model.commitDiff, !diff.files.isEmpty else { return nil }
+        return diff.files.count
     }
 
     /// The whole commit as one scroll of per-file sections, rather than a single flat diff.
