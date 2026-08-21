@@ -20,12 +20,15 @@ struct GitStatusParserTests {
         #expect(snapshot.ahead == 2)
         #expect(snapshot.behind == 1)
         #expect(snapshot.hasCommits)
+        // The history view reloads its log when this moves, so it has to survive parsing.
+        #expect(snapshot.headOid == "1234abcd")
         #expect(snapshot.isClean)
     }
 
     @Test func detectsInitialCommitState() {
         let snapshot = parse(["# branch.oid (initial)", "# branch.head main"])
         #expect(!snapshot.hasCommits)
+        #expect(snapshot.headOid == nil)
     }
 
     /// A file staged and further edited shows up on both sides of the index.

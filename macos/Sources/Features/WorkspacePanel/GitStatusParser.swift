@@ -54,6 +54,9 @@ struct GitStatusSnapshot: Equatable {
     /// False until the repository has its first commit, which changes valid diff bases.
     var hasCommits = true
 
+    /// HEAD's sha, which is how the history view tells a stale log from a still-current one.
+    var headOid: String?
+
     /// Added and removed lines against HEAD, filled in separately after parsing.
     var lineStats = GitLineStats()
 
@@ -115,7 +118,9 @@ enum GitStatusParser {
         guard parts.count >= 2 else { return }
         switch parts[1] {
         case "branch.oid":
-            snapshot.hasCommits = parts.count > 2 && parts[2] != "(initial)"
+            let oid = parts.count > 2 ? String(parts[2]) : ""
+            snapshot.hasCommits = !oid.isEmpty && oid != "(initial)"
+            snapshot.headOid = snapshot.hasCommits ? oid : nil
         case "branch.head":
             snapshot.branch = parts.count > 2 ? String(parts[2]) : nil
         case "branch.upstream":

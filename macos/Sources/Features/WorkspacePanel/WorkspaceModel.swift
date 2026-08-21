@@ -99,6 +99,36 @@ final class WorkspaceModel: ObservableObject {
     @Published private(set) var selectedGitEntry: GitDiffEntry?
     @Published private(set) var diff: DiffState = .none
 
+    // MARK: - History state
+
+    /// The repositories the history picker offers, rebuilt with every status refresh.
+    @Published private(set) var historyRepos: [GitHistoryRepo] = []
+
+    /// The repository the history view reads; the workspace root's own repo by default.
+    @Published private(set) var historyRepoRoot: String?
+
+    @Published private(set) var history: GitHistoryState = .idle
+
+    /// True while a log read is in flight, which the reload and load-more buttons show.
+    @Published private(set) var historyLoading = false
+
+    /// The commit the bottom pane is showing; one at a time, like the file tree's selection.
+    @Published private(set) var selectedCommitSha: String?
+
+    /// Whether a selected commit shows its metadata or its diff, mirroring previewMode.
+    @Published private(set) var commitPreviewMode: CommitPreviewMode = .changes
+
+    @Published private(set) var commitDiff: DiffState = .none
+
+    /// How deep the loaded history goes; "Load more" raises it.
+    private var historyRequestedCount = GitHistoryLoader.pageSize
+
+    /// False while the history view is off screen, where running git log would be pure waste.
+    private var historyActive = false
+
+    private var historyGeneration = 0
+    private var commitDiffGeneration = 0
+
     /// How long a repository walk stands in for the next one; checkouts appear and vanish rarely.
     private static let discoveryTTL: TimeInterval = 30
 
@@ -172,6 +202,7 @@ final class WorkspaceModel: ObservableObject {
         ignoreIndex = await ignored
         git = statuses.isEmpty ? .noRepos : .ready(statuses)
         gitIndex = GitStatusIndex.build(statuses: statuses, workspaceRoot: root.path)
+        syncHistory(statuses: statuses)
 
         await reconcileSelections(after: statuses)
     }
@@ -527,6 +558,202 @@ final class WorkspaceModel: ObservableObject {
         } catch {
             return .failed(error.localizedDescription)
         }
+    }
+
+    // MARK: - History
+
+    /// Fold a status refresh into the picker, re-reading the log only when the shown page went stale.
+    private func syncHistory(statuses: [RepoStatus]) {
+        historyRepos = statuses.map { status in
+            GitHistoryRepo(
+                root: status.repo.root,
+                name: status.repo.isWorkspaceRoot ? root.lastPathComponent : status.repo.relativePath,
+                branch: status.snapshot?.branch,
+                headOid: status.snapshot?.headOid)
+        }
+
+        // The selected repository can vanish when checkouts appear or disappear underneath us.
+        if historyRepoRoot == nil || !historyRepos.contains(where: { $0.root == historyRepoRoot }) {
+            historyRepoRoot = historyRepos.first(where: { $0.root == root.path })?.root
+                ?? historyRepos.first?.root
+        }
+
+        guard historyActive, isHistoryStale else { return }
+        loadHistory()
+    }
+
+    /// A loaded page expires when its repository, HEAD, branch or depth no longer matches.
+    private var isHistoryStale: Bool {
+        guard let repo = historyRepos.first(where: { $0.root == historyRepoRoot }) else {
+            return false
+        }
+        guard case .ready(let page) = history else { return true }
+        return page.repoRoot != repo.root
+            || page.headOid != repo.headOid
+            || page.branch != repo.branch
+            || page.requestedCount != historyRequestedCount
+    }
+
+    /// The history view came on screen; refs can move without HEAD, so this is a reload point.
+    func activateHistory() {
+        historyActive = true
+        loadHistory()
+    }
+
+    func deactivateHistory() {
+        historyActive = false
+    }
+
+    /// The reload button, which re-runs git log locally and never touches the network.
+    func reloadHistory() {
+        loadHistory()
+    }
+
+    func selectHistoryRepo(_ repoRoot: String) {
+        guard repoRoot != historyRepoRoot else { return }
+        historyRepoRoot = repoRoot
+        // Another repository is another history, so depth and selection do not carry over.
+        historyRequestedCount = GitHistoryLoader.pageSize
+        clearHistorySelection()
+        history = .loading
+        loadHistory()
+    }
+
+    func loadMoreHistory() {
+        guard case .ready(let page) = history, page.hasMore, !historyLoading else { return }
+        historyRequestedCount += GitHistoryLoader.pageSize
+        loadHistory(skip: page.commits.count)
+    }
+
+    private func loadHistory(skip: Int = 0) {
+        guard let repoRoot = historyRepoRoot,
+              let repo = historyRepos.first(where: { $0.root == repoRoot })
+        else {
+            history = .idle
+            return
+        }
+        guard let headOid = repo.headOid else {
+            history = .noCommits
+            return
+        }
+
+        historyGeneration += 1
+        let generation = historyGeneration
+        historyLoading = true
+        // The old page stays up while a deeper one loads, so the list never flashes empty.
+        if case .ready = history {} else { history = .loading }
+
+        let request = HistoryRequest(
+            repoRoot: repoRoot,
+            headOid: headOid,
+            branch: repo.branch,
+            requestedCount: historyRequestedCount,
+            appending: skip > 0,
+            generation: generation)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let result = await GitHistoryLoader.fetch(
+                root: URL(fileURLWithPath: repoRoot), revision: headOid, skip: skip)
+            await self?.publishHistory(result, request: request)
+        }
+    }
+
+    /// What a log read was issued against, carried through so its result can be validated on arrival.
+    private struct HistoryRequest: Sendable {
+        let repoRoot: String
+        let headOid: String
+        let branch: String?
+        let requestedCount: Int
+        let appending: Bool
+        let generation: Int
+    }
+
+    private func publishHistory(
+        _ result: GitHistoryLoader.FetchResult, request: HistoryRequest
+    ) {
+        guard request.generation == historyGeneration else { return }
+        historyLoading = false
+
+        switch result {
+        case .failed(let reason):
+            history = .failed(reason)
+        case .ready(let fetch):
+            var commits = fetch.commits
+            // Appending keeps the earlier pages, which is what makes the lanes continuous.
+            if request.appending, case .ready(let page) = history,
+               page.repoRoot == request.repoRoot {
+                commits = page.commits + commits
+            }
+            history = .ready(GitHistoryPage(
+                repoRoot: request.repoRoot,
+                headOid: request.headOid,
+                branch: request.branch,
+                requestedCount: request.requestedCount,
+                commits: commits,
+                graph: GitGraphBuilder.build(commits.map(\.graphNode)),
+                hasMore: fetch.hasMore))
+            reconcileHistorySelection(commits: commits)
+        }
+    }
+
+    /// A rebase can retire the commit the pane is showing, and a stale pane lies.
+    private func reconcileHistorySelection(commits: [GitCommit]) {
+        guard let sha = selectedCommitSha,
+              !commits.contains(where: { $0.sha == sha })
+        else { return }
+        clearHistorySelection()
+    }
+
+    // MARK: - History selection
+
+    /// Selecting a commit opens the bottom pane on it; selecting it again closes the pane.
+    func selectCommit(_ sha: String?) {
+        commitDiffGeneration += 1
+        commitDiff = .none
+
+        guard let sha, sha != selectedCommitSha else {
+            selectedCommitSha = nil
+            return
+        }
+        selectedCommitSha = sha
+
+        // Details costs nothing, so only the Changes mode has to reach for git.
+        guard commitPreviewMode == .changes, let repoRoot = historyRepoRoot else { return }
+        commitDiff = .loading
+        fetchCommitDiff(sha: sha, repoRoot: repoRoot)
+    }
+
+    func clearHistorySelection() {
+        selectedCommitSha = nil
+        commitDiffGeneration += 1
+        commitDiff = .none
+    }
+
+    func setCommitPreviewMode(_ mode: CommitPreviewMode) {
+        guard commitPreviewMode != mode else { return }
+        commitPreviewMode = mode
+        guard mode == .changes, commitDiff == .none,
+              let sha = selectedCommitSha,
+              let repoRoot = historyRepoRoot
+        else { return }
+
+        commitDiffGeneration += 1
+        commitDiff = .loading
+        fetchCommitDiff(sha: sha, repoRoot: repoRoot)
+    }
+
+    private func fetchCommitDiff(sha: String, repoRoot: String) {
+        let generation = commitDiffGeneration
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let state = await Self.runDiff(
+                args: GitHistoryLoader.commitDiffArgs(sha: sha),
+                root: URL(fileURLWithPath: repoRoot))
+            await self?.publishCommitDiff(state, sha: sha, generation: generation)
+        }
+    }
+
+    private func publishCommitDiff(_ state: DiffState, sha: String, generation: Int) {
+        guard generation == commitDiffGeneration, sha == selectedCommitSha else { return }
+        commitDiff = state
     }
 
     // MARK: - Directory watching

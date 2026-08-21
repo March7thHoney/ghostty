@@ -150,8 +150,13 @@ private struct WorkspacePanelContent: View {
     /// Whether the active tab currently has a selection driving the bottom preview pane.
     private var hasSelection: Bool {
         switch state.selectedTab {
-        case .files: return model.selectedFilePath != nil
-        case .git: return model.selectedGitEntry != nil
+        case .files:
+            return model.selectedFilePath != nil
+        case .git:
+            switch state.gitMode {
+            case .changes: return model.selectedGitEntry != nil
+            case .history: return model.selectedCommitSha != nil
+            }
         }
     }
 
@@ -163,7 +168,9 @@ private struct WorkspacePanelContent: View {
                 SplitView(.vertical, $state.previewSplit, dividerColor: dividerColor) {
                     listArea
                 } right: {
-                    WorkspacePreviewView(model: model, tab: state.selectedTab, dividerColor: dividerColor)
+                    WorkspacePreviewView(
+                        model: model, tab: state.selectedTab, gitMode: state.gitMode,
+                        dividerColor: dividerColor)
                 } onEqualize: {
                     state.previewSplit = 0.5
                 }
@@ -202,6 +209,30 @@ private struct WorkspacePanelContent: View {
         case .git:
             WorkspaceGitView(model: model, dividerColor: dividerColor)
         }
+    }
+}
+
+/// Segments that share the icon buttons' wash, because a stock Picker's material reads as foreign here.
+struct WorkspacePanelSegmentStyle: ButtonStyle {
+    var isActive = false
+
+    @State private var isHovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(
+                isActive || isHovering || configuration.isPressed
+                    ? AnyShapeStyle(.primary)
+                    : AnyShapeStyle(.secondary))
+            .frame(maxWidth: .infinity)
+            .frame(height: 20)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.primary.opacity(
+                        configuration.isPressed ? 0.14 : (isActive ? 0.10 : (isHovering ? 0.08 : 0)))))
+            .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
     }
 }
 

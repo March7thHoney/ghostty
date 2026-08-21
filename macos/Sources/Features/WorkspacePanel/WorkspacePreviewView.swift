@@ -4,6 +4,10 @@ import SwiftUI
 struct WorkspacePreviewView: View {
     @ObservedObject var model: WorkspaceModel
     let tab: WorkspacePanelTab
+
+    /// Which half of the git tab is showing, since the two feed the pane different things.
+    let gitMode: WorkspaceGitMode
+
     let dividerColor: Color
 
     private var title: String {
@@ -11,7 +15,12 @@ struct WorkspacePreviewView: View {
         case .files:
             return ((model.selectedFilePath ?? "") as NSString).lastPathComponent
         case .git:
-            return ((model.selectedGitEntry?.path ?? "") as NSString).lastPathComponent
+            switch gitMode {
+            case .changes:
+                return ((model.selectedGitEntry?.path ?? "") as NSString).lastPathComponent
+            case .history:
+                return model.selectedCommitSha.map { String($0.prefix(9)) } ?? ""
+            }
         }
     }
 
@@ -23,11 +32,13 @@ struct WorkspacePreviewView: View {
                 .fill(dividerColor)
                 .frame(height: 1)
 
-            switch tab {
-            case .files:
+            switch (tab, gitMode) {
+            case (.files, _):
                 filePreview
-            case .git:
+            case (.git, .changes):
                 diffPane(model.diff)
+            case (.git, .history):
+                historyPreview
             }
         }
     }
@@ -36,6 +47,12 @@ struct WorkspacePreviewView: View {
     private var hasFileChanges: Bool {
         guard tab == .files, let path = model.selectedFilePath else { return false }
         return model.gitIndex.badge(for: path) != nil
+    }
+
+    /// A whole commit can be read as metadata or as a diff; one file inside it can only be a diff.
+    private var hasCommitModes: Bool {
+        guard tab == .git, gitMode == .history else { return false }
+        return model.selectedCommitSha != nil
     }
 
     private var header: some View {
@@ -68,10 +85,31 @@ struct WorkspacePreviewView: View {
                 .help("Changes")
             }
 
+            if hasCommitModes {
+                Button {
+                    model.setCommitPreviewMode(.details)
+                } label: {
+                    Image(systemName: "doc.text")
+                }
+                .buttonStyle(WorkspacePanelIconButtonStyle(
+                    size: 10, frame: 18, isActive: model.commitPreviewMode == .details))
+                .help("Details")
+
+                Button {
+                    model.setCommitPreviewMode(.changes)
+                } label: {
+                    Image(systemName: "plusminus")
+                }
+                .buttonStyle(WorkspacePanelIconButtonStyle(
+                    size: 10, frame: 18, isActive: model.commitPreviewMode == .changes))
+                .help("Changes")
+            }
+
             Button {
-                switch tab {
-                case .files: model.selectFile(nil)
-                case .git: model.selectGitEntry(nil)
+                switch (tab, gitMode) {
+                case (.files, _): model.selectFile(nil)
+                case (.git, .changes): model.selectGitEntry(nil)
+                case (.git, .history): model.clearHistorySelection()
                 }
             } label: {
                 Image(systemName: "xmark")
@@ -118,6 +156,55 @@ struct WorkspacePreviewView: View {
         }
     }
 
+    // MARK: - History
+
+    @ViewBuilder
+    private var historyPreview: some View {
+        if let sha = model.selectedCommitSha {
+            switch model.commitPreviewMode {
+            case .details: commitDetails(sha)
+            case .changes: commitChanges
+            }
+        } else {
+            centered("")
+        }
+    }
+
+    @ViewBuilder
+    private func commitDetails(_ sha: String) -> some View {
+        if let commit = loadedCommit(sha) {
+            WorkspaceGitCommitDetailView(commit: commit)
+        } else {
+            centered("Commit is no longer loaded")
+        }
+    }
+
+    /// The whole commit as one scroll of per-file sections, rather than a single flat diff.
+    @ViewBuilder
+    private var commitChanges: some View {
+        switch model.commitDiff {
+        case .none:
+            centered("")
+        case .loading:
+            centered { ProgressView().controlSize(.small) }
+        case .failed(let reason):
+            centered(reason)
+        case .ready(let diff):
+            if diff.files.isEmpty {
+                centered("No changes")
+            } else {
+                WorkspaceCommitChangesView(diff: diff, dividerColor: dividerColor)
+                    // Collapsed sections are per-commit state, so a new commit gets a fresh view.
+                    .id(model.selectedCommitSha ?? "")
+            }
+        }
+    }
+
+    private func loadedCommit(_ sha: String) -> GitCommit? {
+        guard case .ready(let page) = model.history else { return nil }
+        return page.commits.first { $0.sha == sha }
+    }
+
     // MARK: - Diff
 
     @ViewBuilder
@@ -140,17 +227,6 @@ struct WorkspacePreviewView: View {
         }
     }
 
-    /// One character's advance in the diff font, scaling columns to points.
-    private static let diffCharWidth: CGFloat = {
-        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        return ("0" as NSString).size(withAttributes: [.font: font]).width
-    }()
-
-    /// Gutters plus padding plus a safety margin on top of the estimated text width.
-    private func diffContentWidth(_ diff: ParsedDiff) -> CGFloat {
-        CGFloat(diff.maxColumns + 4) * Self.diffCharWidth + 60 + 12
-    }
-
     private func diffLines(_ diff: ParsedDiff) -> some View {
         GeometryReader { geo in
             ScrollView([.vertical, .horizontal]) {
@@ -165,7 +241,7 @@ struct WorkspacePreviewView: View {
                 }
                 // Explicit width: a lazy stack only measures visible rows, so its own ideal drifts.
                 .frame(
-                    width: max(geo.size.width, diffContentWidth(diff)),
+                    width: max(geo.size.width, WorkspaceDiffMetrics.contentWidth(diff)),
                     alignment: .leading)
                 .padding(.vertical, 4)
             }
@@ -200,8 +276,22 @@ struct WorkspacePreviewView: View {
     }
 }
 
+/// Sizing shared by the single-file diff pane and the multi-file commit view.
+enum WorkspaceDiffMetrics {
+    /// One character's advance in the diff font, scaling columns to points.
+    static let charWidth: CGFloat = {
+        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        return ("0" as NSString).size(withAttributes: [.font: font]).width
+    }()
+
+    /// Gutters plus padding plus a safety margin on top of the estimated text width.
+    static func contentWidth(_ diff: ParsedDiff) -> CGFloat {
+        CGFloat(diff.maxColumns + 4) * charWidth + 60 + 12
+    }
+}
+
 /// One diff row: old/new line-number gutters plus the classified, tinted line text.
-private struct WorkspaceDiffLineRow: View {
+struct WorkspaceDiffLineRow: View {
     let line: DiffLine
 
     private var rowBackground: Color {

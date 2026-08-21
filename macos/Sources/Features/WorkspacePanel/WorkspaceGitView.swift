@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The git tab: one branch summary and grouped changed files per repository, read-only.
+/// The git tab: the working tree on one side of a segmented control, committed history on the other.
 struct WorkspaceGitView: View {
     @ObservedObject var model: WorkspaceModel
+    @ObservedObject private var state = WorkspacePanelState.shared
 
     let dividerColor: Color
 
@@ -10,6 +11,31 @@ struct WorkspaceGitView: View {
     private static let groupIndent: CGFloat = 10
 
     var body: some View {
+        VStack(spacing: 0) {
+            modePicker
+
+            switch state.gitMode {
+            case .changes:
+                changesBody
+            case .history:
+                WorkspaceGitHistoryView(model: model, dividerColor: dividerColor)
+            }
+        }
+    }
+
+    private var modePicker: some View {
+        HStack(spacing: 2) {
+            Button("Changes") { state.gitMode = .changes }
+                .buttonStyle(WorkspacePanelSegmentStyle(isActive: state.gitMode == .changes))
+            Button("History") { state.gitMode = .history }
+                .buttonStyle(WorkspacePanelSegmentStyle(isActive: state.gitMode == .history))
+        }
+        .padding(.horizontal, 6)
+        .padding(.bottom, 6)
+    }
+
+    @ViewBuilder
+    private var changesBody: some View {
         switch model.git {
         case .loading:
             VStack {
