@@ -199,7 +199,10 @@ struct WorkspacePreviewView: View {
             if diff.files.isEmpty {
                 centered("No changes")
             } else {
-                WorkspaceCommitChangesView(diff: diff, dividerColor: dividerColor)
+                WorkspaceCommitChangesView(
+                    diff: diff,
+                    repoRoot: model.historyRepoRoot ?? model.root.path,
+                    dividerColor: dividerColor)
                     // Collapsed sections are per-commit state, so a new commit gets a fresh view.
                     .id(model.selectedCommitSha ?? "")
             }

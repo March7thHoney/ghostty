@@ -72,6 +72,11 @@ enum ClaudeSidebarCoordinator {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: cwd)])
     }
 
+    /// Put the project directory on the pasteboard.
+    static func copyPath(cwd: String) {
+        NSPasteboard.general.string = cwd
+    }
+
     /// VS Code's location, nil when it isn't installed; resolved once since the panel header reads it per render.
     static let vsCodeURL: URL? =
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode")

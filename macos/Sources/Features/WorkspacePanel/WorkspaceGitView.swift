@@ -119,7 +119,6 @@ struct WorkspaceGitView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .layoutPriority(1)
-                        .help(status.repo.root)
                 }
 
                 Image(systemName: "arrow.triangle.branch")
@@ -132,7 +131,6 @@ struct WorkspaceGitView: View {
                         .foregroundStyle(isSingle ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .help(snapshot.upstream.map { "Upstream: \($0)" } ?? "No upstream")
 
                     if let ahead = snapshot.ahead, ahead > 0 {
                         Text("↑\(ahead)")
@@ -156,6 +154,38 @@ struct WorkspaceGitView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .nativeTooltip(repoTooltip(status))
+    }
+
+    /// Everything the header row squeezes out, so a single-repo workspace can still read its root.
+    private func repoTooltip(_ status: RepoStatus) -> String {
+        var lines = [status.repo.root]
+
+        if let snapshot = status.snapshot {
+            let branch = snapshot.branch ?? "(detached)"
+            lines.append(snapshot.upstream.map { "\(branch) → \($0)" } ?? "\(branch) · No upstream")
+
+            var tracking: [String] = []
+            if let ahead = snapshot.ahead, ahead > 0 { tracking.append("↑\(ahead) ahead") }
+            if let behind = snapshot.behind, behind > 0 { tracking.append("↓\(behind) behind") }
+            if !tracking.isEmpty { lines.append(tracking.joined(separator: ", ")) }
+
+            let stats = snapshot.lineStats
+            if !stats.isZero {
+                lines.append(
+                    "+\(stats.added) −\(stats.removed) against HEAD, untracked files excluded")
+            } else if snapshot.isClean {
+                lines.append("No changes")
+            }
+        }
+
+        switch status.state {
+        case .gitUnavailable(let reason): lines.append("Git is unavailable: \(reason)")
+        case .failed(let reason): lines.append("git status failed: \(reason)")
+        case .ready: break
+        }
+
+        return lines.joined(separator: "\n")
     }
 
     /// The right edge of a header: line totals when there are changes, otherwise a clean marker.
@@ -169,7 +199,6 @@ struct WorkspaceGitView: View {
                     .foregroundStyle(.red)
             }
             .font(.system(size: 11, weight: .medium, design: .monospaced))
-            .help("Lines added and removed against HEAD, untracked files excluded")
         } else if !isSingle, status.isClean {
             Text("clean")
                 .font(.system(size: 11))
@@ -323,7 +352,7 @@ private struct WorkspaceGitFileRow: View {
         .buttonStyle(.plain)
         .background(RoundedRectangle(cornerRadius: 6).fill(rowFill))
         .onHover { isHovering = $0 }
-        .help(file.origPath.map { "\($0) → \(file.path)" } ?? file.path)
+        .nativeTooltip(entry.absolutePath)
         .contextMenu {
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting(

@@ -3,6 +3,10 @@ import SwiftUI
 /// A commit's whole patch as one scroll: a collapsible section per file, VS Code's multi-diff shape.
 struct WorkspaceCommitChangesView: View {
     let diff: ParsedDiff
+
+    /// The repository the paths are relative to, so a row can name a file absolutely.
+    let repoRoot: String
+
     let dividerColor: Color
 
     /// Reset with the commit, because a path collapsed in one commit means nothing in the next.
@@ -38,6 +42,7 @@ struct WorkspaceCommitChangesView: View {
         if !file.path.isEmpty {
             WorkspaceCommitFileHeader(
             file: file,
+            repoRoot: repoRoot,
             isCollapsed: collapsed.contains(file.path),
             dividerColor: dividerColor) {
                 if collapsed.contains(file.path) {
@@ -74,6 +79,7 @@ struct WorkspaceCommitChangesView: View {
 /// One file's header bar inside the multi-file diff.
 private struct WorkspaceCommitFileHeader: View {
     let file: ParsedDiffFile
+    let repoRoot: String
     let isCollapsed: Bool
     let dividerColor: Color
     let onToggle: () -> Void
@@ -85,6 +91,8 @@ private struct WorkspaceCommitFileHeader: View {
     private var parentDir: String { (file.path as NSString).deletingLastPathComponent }
 
     private var badge: GitBadge? { file.change.map(GitBadge.change) }
+
+    private var absolutePath: String { (repoRoot as NSString).appendingPathComponent(file.path) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -130,11 +138,11 @@ private struct WorkspaceCommitFileHeader: View {
         }
         .background(Color.primary.opacity(isHovering ? 0.10 : 0.06))
         .onHover { isHovering = $0 }
-        .help(file.origPath.map { "\($0) → \(file.path)" } ?? file.path)
+        .nativeTooltip(absolutePath)
         .contextMenu {
             Button("Copy Path") {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(file.path, forType: .string)
+                NSPasteboard.general.setString(absolutePath, forType: .string)
             }
         }
     }

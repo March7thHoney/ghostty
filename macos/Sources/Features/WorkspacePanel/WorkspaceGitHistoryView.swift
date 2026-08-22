@@ -234,7 +234,7 @@ private struct WorkspaceCommitRow: View {
         .buttonStyle(.plain)
         .background(RoundedRectangle(cornerRadius: 6).fill(rowFill))
         .onHover { isHovering = $0 }
-        .help("\(commit.shortSha)  \(commit.subject)")
+        .nativeTooltip(GitCommitTooltip.text(for: commit))
         .contextMenu {
             Button("Copy Commit ID") { copy(commit.sha) }
             Button("Copy Short ID") { copy(commit.shortSha) }

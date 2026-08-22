@@ -126,6 +126,7 @@ private struct WorkspaceFileTreeRow: View {
         .buttonStyle(.plain)
         .background(RoundedRectangle(cornerRadius: 6).fill(rowFill))
         .onHover { isHovering = $0 }
+        .nativeTooltip(node.path)
         .contextMenu {
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: node.path)])

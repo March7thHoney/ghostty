@@ -68,6 +68,13 @@ struct GitCommit: Identifiable, Equatable {
 
     var isMerge: Bool { parents.count > 1 }
 
+    /// The body minus the subject git repeats at its head, so it is not shown twice.
+    var trailingBody: String {
+        var rest = Substring(body)
+        if rest.hasPrefix(subject) { rest = rest.dropFirst(subject.count) }
+        return rest.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var isHead: Bool { refs.contains(where: \.isHead) }
 
     var graphNode: GitGraphNode { GitGraphNode(sha: sha, parents: parents) }

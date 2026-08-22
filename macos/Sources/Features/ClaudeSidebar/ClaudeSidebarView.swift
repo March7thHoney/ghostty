@@ -259,7 +259,6 @@ private struct ClaudeSidebarProjectHeader: View {
                 .font(.system(size: 12, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .help(project.cwd)
 
             Spacer(minLength: 4)
 
@@ -281,9 +280,13 @@ private struct ClaudeSidebarProjectHeader: View {
         .padding(.bottom, 4)
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
+        .nativeTooltip(project.cwd)
         .contextMenu {
             Button("Reveal in Finder") {
                 ClaudeSidebarCoordinator.revealInFinder(cwd: project.cwd)
+            }
+            Button("Copy Path") {
+                ClaudeSidebarCoordinator.copyPath(cwd: project.cwd)
             }
             Button("Open in VS Code") {
                 ClaudeSidebarCoordinator.openInVSCode(cwd: project.cwd)

@@ -7,13 +7,6 @@ struct WorkspaceGitCommitDetailView: View {
     /// Used when the stats pass produced nothing, so the count still comes from the loaded patch.
     let fallbackFileCount: Int?
 
-    /// The body minus the subject git repeats at its head, so it is not shown twice.
-    private var trailingBody: String {
-        var rest = Substring(commit.body)
-        if rest.hasPrefix(commit.subject) { rest = rest.dropFirst(commit.subject.count) }
-        return rest.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private var fileSummary: String? {
         guard let count = commit.filesChanged ?? fallbackFileCount else { return nil }
         return count == 1 ? "1 file changed" : "\(count) files changed"
@@ -27,8 +20,8 @@ struct WorkspaceGitCommitDetailView: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if !trailingBody.isEmpty {
-                    Text(trailingBody)
+                if !commit.trailingBody.isEmpty {
+                    Text(commit.trailingBody)
                         .font(.system(size: 11))
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)

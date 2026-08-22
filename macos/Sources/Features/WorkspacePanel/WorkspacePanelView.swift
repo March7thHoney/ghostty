@@ -193,7 +193,6 @@ private struct WorkspacePanelContent: View {
                 .font(.system(size: 12, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .help(model.root.path)
 
             Spacer(minLength: 4)
         }
@@ -201,6 +200,8 @@ private struct WorkspacePanelContent: View {
         .padding(.trailing, 4)
         .padding(.top, 10)
         .padding(.bottom, 4)
+        .contentShape(Rectangle())
+        .nativeTooltip(model.root.path)
     }
 
     @ViewBuilder
