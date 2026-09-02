@@ -43,25 +43,11 @@ struct WorkspaceGitHistoryView: View {
             }
 
             Spacer(minLength: 4)
-
-            Button {
-                model.reloadHistory()
-            } label: {
-                if model.historyLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .scaleEffect(0.7)
-                } else {
-                    Image(systemName: "arrow.clockwise")
-                }
-            }
-            .buttonStyle(WorkspacePanelIconButtonStyle(size: 10, frame: 18))
-            .disabled(model.historyLoading)
-            .help("Reload history")
         }
+        // Reloading lives on the breadcrumb row, shared with the other tabs.
+        .frame(height: 24)
         .padding(.leading, 10)
         .padding(.trailing, 6)
-        .padding(.vertical, 3)
     }
 
     private var repoSummary: some View {

@@ -141,6 +141,9 @@ final class WorkspaceModel: ObservableObject {
     private var started = false
     private var refreshPending = false
     private var refreshRunning = false
+
+    /// True while a refresh is in flight, which the breadcrumb reload button shows.
+    @Published private(set) var refreshing = false
     private var previewGeneration = 0
     private var diffGeneration = 0
     private var fileDiffGeneration = 0
@@ -181,15 +184,24 @@ final class WorkspaceModel: ObservableObject {
             return
         }
         refreshRunning = true
+        refreshing = true
         Task { [weak self] in
             guard let self else { return }
             await self.refresh()
             self.refreshRunning = false
+            self.refreshing = false
             if self.refreshPending {
                 self.refreshPending = false
                 self.scheduleRefresh()
             }
         }
+    }
+
+    /// The breadcrumb reload button: re-walks repositories, then refreshes the tree, status, and history.
+    func reloadWorkspace() {
+        lastDiscovery = nil
+        scheduleRefresh()
+        if historyActive { reloadHistory() }
     }
 
     private func refresh() async {

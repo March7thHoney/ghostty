@@ -50,6 +50,17 @@ struct WorkspacePanelView: View {
         .task(id: pwd) { model = await WorkspaceRegistry.shared.model(forPwd: pwd) }
     }
 
+    /// Finder's icon drawn under the light appearance, since the panel's dark scheme would pick the dark variant.
+    private static let finderIcon: NSImage = {
+        let icon = NSWorkspace.shared.icon(forFile: "/System/Library/CoreServices/Finder.app")
+        return NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+            NSAppearance(named: .aqua)?.performAsCurrentDrawingAppearance {
+                icon.draw(in: rect)
+            }
+            return true
+        }
+    }()
+
     private var header: some View {
         HStack(spacing: 2) {
             Button {
@@ -79,6 +90,19 @@ struct WorkspacePanelView: View {
                 }
                 .buttonStyle(WorkspacePanelIconButtonStyle())
                 .help("Open in VS Code")
+            }
+
+            if let root = model?.root {
+                Button {
+                    ClaudeSidebarCoordinator.revealInFinder(cwd: root.path)
+                } label: {
+                    // Finder's own icon, so the button can't be mistaken for the Files tab.
+                    Image(nsImage: Self.finderIcon)
+                        .resizable()
+                        .frame(width: 14, height: 14)
+                }
+                .buttonStyle(WorkspacePanelIconButtonStyle())
+                .help("Reveal in Finder")
             }
 
             Spacer()
@@ -185,23 +209,41 @@ private struct WorkspacePanelContent: View {
 
     private var breadcrumb: some View {
         HStack(spacing: 6) {
-            Image(systemName: "folder")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+            // The path tooltip covers only the name, so hovering the reload button doesn't raise it.
+            HStack(spacing: 6) {
+                Image(systemName: "folder")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
 
-            Text(model.root.lastPathComponent)
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.middle)
+                Text(model.root.lastPathComponent)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .contentShape(Rectangle())
+            .nativeTooltip(model.root.path)
 
             Spacer(minLength: 4)
+
+            Button {
+                model.reloadWorkspace()
+            } label: {
+                if model.refreshing || model.historyLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.7)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
+            }
+            .buttonStyle(WorkspacePanelIconButtonStyle(size: 10, frame: 18))
+            .disabled(model.refreshing || model.historyLoading)
+            .help("Reload")
         }
         .padding(.leading, 10)
-        .padding(.trailing, 4)
+        .padding(.trailing, 6)
         .padding(.top, 10)
         .padding(.bottom, 4)
-        .contentShape(Rectangle())
-        .nativeTooltip(model.root.path)
     }
 
     @ViewBuilder
