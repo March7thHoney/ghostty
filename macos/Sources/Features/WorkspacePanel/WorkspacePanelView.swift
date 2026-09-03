@@ -50,9 +50,14 @@ struct WorkspacePanelView: View {
         .task(id: pwd) { model = await WorkspaceRegistry.shared.model(forPwd: pwd) }
     }
 
-    /// Finder's icon drawn under the light appearance, since the panel's dark scheme would pick the dark variant.
+    /// Finder's bundled .icns, which only has a light face; icon services bakes the system's dark variant.
     private static let finderIcon: NSImage = {
-        let icon = NSWorkspace.shared.icon(forFile: "/System/Library/CoreServices/Finder.app")
+        let finder = "/System/Library/CoreServices/Finder.app"
+        if let icns = NSImage(contentsOfFile: finder + "/Contents/Resources/Finder.icns") {
+            return icns
+        }
+        // Without the .icns, the drawing appearance is the only lever left, weak as it is.
+        let icon = NSWorkspace.shared.icon(forFile: finder)
         return NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
             NSAppearance(named: .aqua)?.performAsCurrentDrawingAppearance {
                 icon.draw(in: rect)
