@@ -87,6 +87,9 @@ final class WorkspaceModel: ObservableObject {
 
     @Published private(set) var git: WorkspaceGitState = .loading
 
+    /// The workspace root's own GitHub page, nil when no remote there lives on GitHub.
+    @Published private(set) var githubURL: URL?
+
     /// Repository roots the git tab folds away, kept here so same-root windows agree.
     @Published private(set) var collapsedRepos: Set<String> = []
 
@@ -208,6 +211,7 @@ final class WorkspaceModel: ObservableObject {
         let dirs = [root.path] + expandedDirs.sorted()
         async let scanned = Self.scan(dirs: dirs)
         async let ignored = Self.fetchIgnored(root: root, isGitRepo: isGitRepo)
+        async let github = Self.fetchGitHubURL(root: root, isGitRepo: isGitRepo)
         let repos = await currentRepos()
         let statuses = await Self.fetchStatuses(repos: repos)
 
@@ -215,6 +219,7 @@ final class WorkspaceModel: ObservableObject {
         childrenByDir = children
         deniedDirs = denied
         ignoreIndex = await ignored
+        githubURL = await github
         git = statuses.isEmpty ? .noRepos : .ready(statuses)
         gitIndex = GitStatusIndex.build(statuses: statuses, workspaceRoot: root.path)
         syncHistory(statuses: statuses)
@@ -384,6 +389,17 @@ final class WorkspaceModel: ObservableObject {
             output.exitCode == 0
         else { return .empty }
         return GitIgnoreIndex.parse(output.stdout, root: root.path)
+    }
+
+    /// The root's GitHub page; the button is decoration only, so any failure just hides it.
+    nonisolated private static func fetchGitHubURL(root: URL, isGitRepo: Bool) async -> URL? {
+        guard isGitRepo else { return nil }
+        // One config read lists every remote; a repo without remotes exits 1, which reads as none.
+        guard let output = try? await GitRunner.run(
+            ["config", "--get-regexp", #"^remote\..*\.url$"#], in: root, timeoutSeconds: 5),
+            output.exitCode == 0
+        else { return nil }
+        return GitRemoteParser.githubWebURL(remotes: GitRemoteParser.parseRemotes(output.stdout))
     }
 
     /// Totals against HEAD; a failure here costs the counter only, never the status list.

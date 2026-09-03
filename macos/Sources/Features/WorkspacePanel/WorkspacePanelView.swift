@@ -105,6 +105,10 @@ struct WorkspacePanelView: View {
                 .help("Reveal in Finder")
             }
 
+            if let model {
+                WorkspaceGitHubButton(model: model)
+            }
+
             Spacer()
 
             Button {
@@ -167,6 +171,25 @@ struct WorkspacePanelRail: View {
 }
 
 /// The panel body for one resolved workspace: breadcrumb, active tab, and optional preview split.
+/// Observes the model itself, since the remote URL lands after the header's first render.
+private struct WorkspaceGitHubButton: View {
+    @ObservedObject var model: WorkspaceModel
+
+    var body: some View {
+        if let url = model.githubURL {
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                // A solid disc reads heavier than the outline symbols, so it sits a touch smaller.
+                GitHubLogo()
+                    .frame(width: 12, height: 12)
+            }
+            .buttonStyle(WorkspacePanelIconButtonStyle())
+            .help("Open on GitHub")
+        }
+    }
+}
+
 private struct WorkspacePanelContent: View {
     @ObservedObject var model: WorkspaceModel
     @ObservedObject private var state = WorkspacePanelState.shared
