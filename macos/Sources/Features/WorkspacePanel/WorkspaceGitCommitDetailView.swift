@@ -2,6 +2,8 @@ import SwiftUI
 
 /// The bottom pane for a selected commit: everything the 320pt row had to leave out.
 struct WorkspaceGitCommitDetailView: View {
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     let commit: GitCommit
 
     /// Used when the stats pass produced nothing, so the count still comes from the loaded patch.
@@ -48,9 +50,9 @@ struct WorkspaceGitCommitDetailView: View {
                 if let stats = commit.stats, !stats.isZero {
                     HStack(spacing: 6) {
                         Text("+\(stats.added)")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(palette.success)
                         Text("−\(stats.removed)")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(palette.error)
                     }
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                 }
@@ -64,7 +66,7 @@ struct WorkspaceGitCommitDetailView: View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label)
                 .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary)
                 // A fixed gutter keeps the values in one column instead of a ragged left edge.
                 .frame(width: 46, alignment: .leading)
 

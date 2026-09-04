@@ -41,7 +41,7 @@ class BaseTerminalController: NSWindowController,
     let ghostty: Ghostty.App
 
     /// The currently focused surface.
-    var focusedSurface: Ghostty.SurfaceView? {
+    @Published var focusedSurface: Ghostty.SurfaceView? {
         didSet { syncFocusToSurfaceTree() }
     }
 
@@ -67,6 +67,15 @@ class BaseTerminalController: NSWindowController,
 
     /// The window hosting the terminal view, for the sidebar to open tabs.
     var hostWindow: NSWindow? { window }
+
+    /// Only regular terminal windows hide their titlebar.
+    var extendsUnderTitlebar: Bool { false }
+
+    /// Traffic-light and fullscreen facts for the top bars; regular windows keep it current.
+    let chrome = WindowChromeModel()
+
+    /// Only regular terminal windows have tabs.
+    var tabStrip: TabStripModel? { nil }
 
     /// True when any surface in this controller currently has an active bell.
     @Published private(set) var bell: Bool = false
@@ -1339,17 +1348,6 @@ class BaseTerminalController: NSWindowController,
     }
 
     @IBAction func changeTabTitle(_ sender: Any) {
-        if let targetWindow = window {
-            let inlineHostWindow =
-                targetWindow.tabbedWindows?
-                    .first(where: { $0.tabBarView != nil }) as? TerminalWindow
-                ?? (targetWindow as? TerminalWindow)
-
-            if let inlineHostWindow, inlineHostWindow.beginInlineTabTitleEdit(for: targetWindow) {
-                return
-            }
-        }
-
         promptTabTitle()
     }
 

@@ -26,30 +26,11 @@ enum GitGraphStyle {
         leadingInset + CGFloat(min(lane, maxLanes - 1)) * laneWidth + laneWidth / 2
     }
 
-    /// Mid-lightness hues that hold up on both a white and a near-black terminal background.
-    static func color(lane: Int, scheme: ColorScheme) -> Color {
-        let palette = scheme == .dark ? darkPalette : lightPalette
-        return palette[lane % palette.count]
+    /// Lane hues come from the app palette, which keeps green and red for added and removed lines.
+    static func color(lane: Int, palette: AppPalette) -> Color {
+        let lanes = palette.graphLanes
+        return lanes[lane % lanes.count]
     }
-
-    // Green and red are deliberately absent: the panel already spends them on added and removed lines.
-    private static let darkPalette: [Color] = [
-        Color(red: 0.42, green: 0.62, blue: 0.94),
-        Color(red: 0.89, green: 0.65, blue: 0.31),
-        Color(red: 0.68, green: 0.55, blue: 0.90),
-        Color(red: 0.36, green: 0.75, blue: 0.68),
-        Color(red: 0.90, green: 0.51, blue: 0.60),
-        Color(red: 0.62, green: 0.76, blue: 0.40),
-    ]
-
-    private static let lightPalette: [Color] = [
-        Color(red: 0.16, green: 0.42, blue: 0.80),
-        Color(red: 0.72, green: 0.45, blue: 0.08),
-        Color(red: 0.45, green: 0.32, blue: 0.74),
-        Color(red: 0.08, green: 0.52, blue: 0.47),
-        Color(red: 0.76, green: 0.24, blue: 0.40),
-        Color(red: 0.38, green: 0.52, blue: 0.16),
-    ]
 
     static func circle(_ center: CGPoint, _ radius: CGFloat) -> Path {
         Path(ellipseIn: CGRect(
@@ -64,7 +45,8 @@ struct WorkspaceGraphCanvas: View {
     let isHead: Bool
     let isMerge: Bool
 
-    @Environment(\.colorScheme) private var scheme
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
 
     var body: some View {
         Canvas(opaque: false, rendersAsynchronously: false) { context, size in
@@ -113,12 +95,12 @@ struct WorkspaceGraphCanvas: View {
 
         context.stroke(
             path,
-            with: .color(GitGraphStyle.color(lane: edge.colorLane, scheme: scheme)),
+            with: .color(GitGraphStyle.color(lane: edge.colorLane, palette: palette)),
             lineWidth: GitGraphStyle.lineWidth)
     }
 
     private func drawNode(at center: CGPoint, into context: inout GraphicsContext) {
-        let color = GitGraphStyle.color(lane: row.lane, scheme: scheme)
+        let color = GitGraphStyle.color(lane: row.lane, palette: palette)
         let radius = GitGraphStyle.dotRadius
 
         if isMerge {
@@ -144,7 +126,8 @@ struct WorkspaceGraphLaneStrip: View {
     let lanes: [Int]
     let laneCount: Int
 
-    @Environment(\.colorScheme) private var scheme
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
 
     var body: some View {
         Canvas(opaque: false, rendersAsynchronously: false) { context, size in
@@ -154,7 +137,7 @@ struct WorkspaceGraphLaneStrip: View {
                 path.addLine(to: CGPoint(x: GitGraphStyle.x(lane), y: size.height))
                 context.stroke(
                     path,
-                    with: .color(GitGraphStyle.color(lane: lane, scheme: scheme)),
+                    with: .color(GitGraphStyle.color(lane: lane, palette: palette)),
                     lineWidth: GitGraphStyle.lineWidth)
             }
         }

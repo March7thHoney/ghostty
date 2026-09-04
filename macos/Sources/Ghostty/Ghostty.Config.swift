@@ -57,6 +57,14 @@ extension Ghostty {
         /// - Parameters:
         ///   - path: An optional preferred config file path. Pass `nil` to load the default configuration files.
         ///   - finalize: Whether to finalize the configuration to populate default values.
+        /// The bundled override config, absent when running from Xcode without a zig build.
+        static var appOverrideConfigPath: String? {
+            guard let url = Bundle.main.resourceURL?
+                .appendingPathComponent("ghostty/app-override.conf") else { return nil }
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return url.path
+        }
+
         static func loadConfig(at path: String?, finalize: Bool) -> ghostty_config_t? {
             // Initialize the global configuration.
             guard let cfg = ghostty_config_new() else {
@@ -78,6 +86,11 @@ extension Ghostty {
             }
 
             ghostty_config_load_recursive_files(cfg)
+
+            // The app owns its look; an explicit path means the caller wants exactly that file.
+            if path == nil, let override = appOverrideConfigPath {
+                ghostty_config_load_file(cfg, override)
+            }
 
             // TODO: we'd probably do some config loading here... for now we'd
             // have to do this synchronously. When we support config updating we can do
@@ -251,15 +264,6 @@ extension Ghostty {
             return WindowDecoration(rawValue: str)?.enabled() ?? defaultValue
         }
 
-        var windowTheme: String? {
-            guard let config = self.config else { return nil }
-            var v: UnsafePointer<Int8>?
-            let key = "window-theme"
-            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
-            guard let ptr = v else { return nil }
-            return String(cString: ptr)
-        }
-
         var windowStepResize: Bool {
             guard let config = self.config else { return true }
             var v = false
@@ -346,16 +350,6 @@ extension Ghostty {
             guard let ptr = v else { return defaultValue }
             let str = String(cString: ptr)
             return MacOSWindowButtons(rawValue: str) ?? defaultValue
-        }
-
-        var macosTitlebarStyle: MacOSTitlebarStyle {
-            let defaultValue = MacOSTitlebarStyle.transparent
-            guard let config = self.config else { return defaultValue }
-            var v: UnsafePointer<Int8>?
-            let key = "macos-titlebar-style"
-            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
-            guard let ptr = v else { return defaultValue }
-            return MacOSTitlebarStyle(rawValue: String(cString: ptr)) ?? defaultValue
         }
 
         var macosTitlebarProxyIcon: MacOSTitlebarProxyIcon {
@@ -905,11 +899,6 @@ extension Ghostty.Config {
 
         static let bell = NotifyOnCommandFinishAction(rawValue: 1 << 0)
         static let notify = NotifyOnCommandFinishAction(rawValue: 1 << 1)
-    }
-
-    enum MacOSTitlebarStyle: String {
-        static let `default` = MacOSTitlebarStyle.transparent
-        case native, transparent, tabs, hidden
     }
 
     enum DragHandle: String {

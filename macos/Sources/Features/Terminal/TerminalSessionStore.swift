@@ -260,10 +260,11 @@ final class TerminalSessionStore {
                     target.addTabbedWindowSafely(nsWindow, ordered: .above)
                     controller.showWindowSafely(nil)
                 } else {
-                    controller.showWindowSafely(nil)
+                    // The frame comes first: showing sizes the pty, and a later resize can't unwrap it.
                     if let frame = window.frame.cgRect, Self.isOnScreen(frame) {
                         nsWindow.setFrame(frame, display: false)
                     }
+                    controller.showWindowSafely(nil)
                     groupLeader = nsWindow
                 }
 
@@ -312,7 +313,8 @@ final class TerminalSessionStore {
 
         if let focused = state.focusedSurface,
            let view = controller.surfaceTree.first(where: { $0.id.uuidString == focused }) {
-            controller.focusedSurface = view
+            // Through the delegate hook, so title and panel wire up before SwiftUI reports focus.
+            controller.focusedSurfaceDidChange(to: view)
             TerminalWindowRestoration.restoreFocus(to: view, inWindow: window)
         }
 

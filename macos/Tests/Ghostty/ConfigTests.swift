@@ -90,22 +90,6 @@ struct ConfigTests {
 
     // MARK: - Enum Properties
 
-    @Test func macosTitlebarStyleDefaultsToTransparent() throws {
-        let config = try TemporaryConfig("")
-        #expect(config.macosTitlebarStyle == .transparent)
-    }
-
-    @Test(arguments: [
-        ("native", Ghostty.Config.MacOSTitlebarStyle.native),
-        ("transparent", Ghostty.Config.MacOSTitlebarStyle.transparent),
-        ("tabs", Ghostty.Config.MacOSTitlebarStyle.tabs),
-        ("hidden", Ghostty.Config.MacOSTitlebarStyle.hidden),
-    ])
-    func macosTitlebarStyleValues(raw: String, expected: Ghostty.Config.MacOSTitlebarStyle) throws {
-        let config = try TemporaryConfig("macos-titlebar-style = \(raw)")
-        #expect(config.macosTitlebarStyle == expected)
-    }
-
     @Test func resizeOverlayDefaultsToAfterFirst() throws {
         let config = try TemporaryConfig("")
         #expect(config.resizeOverlay == .after_first)

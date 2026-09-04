@@ -6,36 +6,8 @@ import GhosttyKit
 
 /// A classic, tabbed terminal experience.
 class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
-    override var windowNibName: NSNib.Name? {
-        let defaultValue = "Terminal"
-
-        guard let appDelegate = NSApp.delegate as? AppDelegate else { return defaultValue }
-        let config = appDelegate.ghostty.config
-
-        // If we have no window decorations, there's no reason to do anything but
-        // the default titlebar (because there will be no titlebar).
-        if !config.windowDecorations {
-            return defaultValue
-        }
-
-        let nib = switch config.macosTitlebarStyle {
-        case .native: "Terminal"
-        case .hidden: "TerminalHiddenTitlebar"
-        case .transparent: "TerminalTransparentTitlebar"
-        case .tabs:
-#if compiler(>=6.2)
-            if #available(macOS 26.0, *) {
-                "TerminalTabsTitlebarTahoe"
-            } else {
-                "TerminalTabsTitlebarVentura"
-            }
-#else
-            "TerminalTabsTitlebarVentura"
-#endif
-        }
-
-        return nib
-    }
+    /// There is one window style now, so one nib.
+    override var windowNibName: NSNib.Name? { "Terminal" }
 
     /// This is set to true when we care about frame changes. This is a small optimization since
     /// this controller registers a listener for ALL frame change notifications and this lets us bail
@@ -66,6 +38,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Regular terminal windows show the workspace panel.
     override var isWorkspacePanelSupported: Bool { true }
+
+    /// Regular terminal windows extend under their hidden titlebar.
+    override var extendsUnderTitlebar: Bool { true }
+
+    /// The tab strip's data source, created once the window exists.
+    private lazy var tabStripModel = TabStripModel(window: window)
+    override var tabStrip: TabStripModel? { tabStripModel }
+
+    override func fullscreenDidChange() {
+        chrome.isFullscreen = fullscreenStyle?.isFullscreen ?? false
+        super.fullscreenDidChange()
+    }
 
     /// Keeps the tab's Claude activity indicator in sync with the live-session registry.
     private var claudeActivityCancellable: AnyCancellable?
@@ -610,6 +594,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
         }
+
+        tabStripModel.refresh()
     }
 
     private func fixTabBar() {
@@ -652,13 +638,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Sync our zoom state for splits
         window.surfaceIsZoomed = surfaceTree.zoomed != nil
-
-        // Set the font for the window and tab titles.
-        if let titleFontName = surfaceConfig.windowTitleFontFamily {
-            window.titlebarFont = NSFont(name: titleFontName, size: NSFont.systemFontSize)
-        } else {
-            window.titlebarFont = nil
-        }
 
         // Call this last in case it uses any of the properties above.
         window.syncAppearance(surfaceConfig)
@@ -1126,43 +1105,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             focusedSurface = view
         }
 
+        chrome.windowButtonsVisible = config.macosWindowButtons != .hidden
+
+        sizeWindowBeforeContent(window)
+
         // Initialize our content view to the SwiftUI root
-        let container = TerminalViewContainer {
+        window.contentView = TerminalViewContainer {
             TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
         }
-
-        // Set the initial content size on the container so that
-        // intrinsicContentSize returns the correct value immediately,
-        // without waiting for @FocusedValue to propagate through the
-        // The sidebar shares the hosting view, so its width must be in this fallback or the first frame is short.
-        if var initialContentSize = focusedSurface?.initialSize {
-            initialContentSize.width += (ClaudeSidebarState.shared.isVisible
-                ? ClaudeSidebarView.width
-                : ClaudeSidebarRail.width) + 1
-            initialContentSize.width += (WorkspacePanelState.shared.isVisible
-                ? WorkspacePanelView.width
-                : WorkspacePanelRail.width) + 1
-            container.initialContentSize = initialContentSize
-        }
-
-        window.contentView = container
 
         // Keep the tab's Claude activity indicator in sync with the live-session registry.
         claudeActivityCancellable = ClaudeLiveSessionMonitor.shared.$byPID
             .receive(on: DispatchQueue.main)
             .sink { [weak self] byPID in self?.syncClaudeActivity(byPID) }
-
-        // If we have a default size, we want to apply it.
-        if let defaultSize {
-            defaultSize.apply(to: window)
-
-            if case .contentIntrinsicSize = defaultSize {
-                if let screen = window.screen ?? NSScreen.main {
-                    let frame = self.adjustForWindowPosition(frame: window.frame, on: screen)
-                    window.setFrameOrigin(frame.origin)
-                }
-            }
-        }
 
         // In various situations, macOS automatically tabs new windows. Ghostty handles
         // its own tabbing so we DONT want this behavior. This detects this scenario and undoes
@@ -1541,23 +1496,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Get our target window
         let targetWindow = tabbedWindows[finalIndex]
 
-        // Moving tabs on macOS 26 RC causes very nasty visual glitches in the titlebar tabs.
-        // I believe this is due to messed up constraints for our hacky tab bar. I'd like to
-        // find a better workaround. For now, this improves things dramatically.
-        //
-        // Reproduction: titlebar tabs, create two tabs, "move tab left"
-        if #available(macOS 26, *) {
-            if window is TitlebarTabsTahoeTerminalWindow {
-                tabGroup.removeWindow(selectedWindow)
-                targetWindow.addTabbedWindowSafely(selectedWindow, ordered: action.amount < 0 ? .below : .above)
-                DispatchQueue.main.async {
-                    selectedWindow.makeKey()
-                }
-
-                return
-            }
-        }
-
         // Begin a group of window operations to minimize visual updates
         NSAnimationContext.beginGrouping()
         NSAnimationContext.current.duration = 0
@@ -1674,7 +1612,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     struct DerivedConfig {
         let backgroundColor: Color
         let macosWindowButtons: Ghostty.MacOSWindowButtons
-        let macosTitlebarStyle: Ghostty.Config.MacOSTitlebarStyle
         let maximize: Bool
         let windowPositionX: Int16?
         let windowPositionY: Int16?
@@ -1682,7 +1619,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         init() {
             self.backgroundColor = Color(NSColor.windowBackgroundColor)
             self.macosWindowButtons = .visible
-            self.macosTitlebarStyle = .default
             self.maximize = false
             self.windowPositionX = nil
             self.windowPositionY = nil
@@ -1691,7 +1627,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         init(_ config: Ghostty.Config) {
             self.backgroundColor = config.backgroundColor
             self.macosWindowButtons = config.macosWindowButtons
-            self.macosTitlebarStyle = config.macosTitlebarStyle
             self.maximize = config.maximize
             self.windowPositionX = config.windowPositionX
             self.windowPositionY = config.windowPositionY
@@ -1743,18 +1678,15 @@ extension TerminalController {
         case frame(NSRect)
 
         /// A content size, set with `window.setContentSize`
-        case contentIntrinsicSize
+        case contentSize(NSSize)
 
         func isChanged(for window: NSWindow) -> Bool {
             switch self {
             case .frame(let rect):
                 return window.frame != rect
-            case .contentIntrinsicSize:
-                guard let view = window.contentView else {
-                    return false
-                }
-
-                return view.frame.size != view.intrinsicContentSize
+            case .contentSize(let size):
+                guard let view = window.contentView else { return false }
+                return view.frame.size != size
             }
         }
 
@@ -1762,25 +1694,67 @@ extension TerminalController {
             switch self {
             case .frame(let rect):
                 window.setFrame(rect, display: true)
-            case .contentIntrinsicSize:
-                guard let size = window.contentView?.intrinsicContentSize else {
-                    return
-                }
-
+            case .contentSize(let size):
                 window.setContentSize(size)
                 window.constrainToScreen()
             }
         }
     }
 
+    /// Sizes the window before the SwiftUI tree goes in, so the pty never starts at the nib's width.
+    private func sizeWindowBeforeContent(_ window: NSWindow) {
+        if let defaultSize {
+            defaultSize.apply(to: window)
+
+            if case .contentSize = defaultSize {
+                if let screen = window.screen ?? NSScreen.main {
+                    let frame = self.adjustForWindowPosition(frame: window.frame, on: screen)
+                    window.setFrameOrigin(frame.origin)
+                }
+            }
+            return
+        }
+
+        // The size the user left the last window at, which `showWindow` would restore anyway.
+        if LastWindowPosition.shared.restore(window, origin: false, size: true) { return }
+
+        // The nib sizes a bare terminal, so the chrome around it has to be added on.
+        let insets = chromeInsets
+        guard insets.width > 0 || insets.height > 0 else { return }
+        let content = window.contentRect(forFrameRect: window.frame).size
+        window.setContentSize(NSSize(
+            width: content.width + insets.width,
+            height: content.height + insets.height))
+        window.constrainToScreen()
+    }
+
+    /// Both side panels, their dividers and the tab strip, in points, known without asking SwiftUI.
+    private var chromeInsets: NSSize {
+        var width: CGFloat = 0
+        if isClaudeSidebarSupported {
+            width += (ClaudeSidebarState.shared.isVisible
+                ? ClaudeSidebarView.width
+                : ClaudeSidebarRail.width) + 1
+        }
+        if isWorkspacePanelSupported {
+            width += (WorkspacePanelState.shared.isVisible
+                ? WorkspacePanelView.width
+                : WorkspacePanelRail.width) + 1
+        }
+        return NSSize(width: width, height: tabStrip == nil ? 0 : AppMetrics.topBarHeight)
+    }
+
     private var defaultSize: DefaultSize? {
         if derivedConfig.maximize, let screen = window?.screen ?? NSScreen.main {
             // Maximize takes priority, we take up the full screen we're on.
             return .frame(screen.visibleFrame)
-        } else if focusedSurface?.initialSize != nil {
+        } else if let initialSize = focusedSurface?.initialSize {
             // Initial size as requested by the configuration (e.g. `window-width`)
-            // takes next priority.
-            return .contentIntrinsicSize
+            // takes next priority. The chrome sits beside the terminal, so it is added on.
+            let insets = chromeInsets
+            return .contentSize(NSSize(
+                width: initialSize.width + insets.width,
+                height: initialSize.height + insets.height))
         } else {
             return nil
         }

@@ -2,6 +2,8 @@ import SwiftUI
 
 /// The files tab: a lazily scanned, hand-rolled outline of the workspace root.
 struct WorkspaceFileTreeView: View {
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     @ObservedObject var model: WorkspaceModel
 
     var body: some View {
@@ -16,7 +18,7 @@ struct WorkspaceFileTreeView: View {
                 if rows.isEmpty {
                     Text("Empty directory")
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                 }
@@ -28,7 +30,7 @@ struct WorkspaceFileTreeView: View {
                     case .noAccess:
                         Text("No access")
                             .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.textSecondary)
                             .padding(.leading, CGFloat(row.depth) * 12 + 26)
                             .padding(.vertical, 3)
                     }
@@ -46,6 +48,8 @@ private struct WorkspaceFileTreeRow: View {
     let node: FileTreeNode
     let depth: Int
 
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     @State private var isHovering = false
 
     private var isSelected: Bool { model.selectedFilePath == node.path }
@@ -56,11 +60,6 @@ private struct WorkspaceFileTreeRow: View {
 
     /// Ignored rows stay readable but recede, the way VS Code dims them.
     private var isIgnored: Bool { model.ignoreIndex.isIgnored(node.path) }
-
-    private var rowFill: Color {
-        if isSelected { return Color.accentColor.opacity(isHovering ? 0.20 : 0.14) }
-        return isHovering ? Color.primary.opacity(0.08) : Color.clear
-    }
 
     private var iconName: String {
         if node.isSymlink { return "link" }
@@ -74,12 +73,12 @@ private struct WorkspaceFileTreeRow: View {
             Group {
                 if node.isDirectory {
                     Circle()
-                        .fill(badge.color)
+                        .fill(badge.color(palette))
                         .frame(width: 6, height: 6)
                 } else {
                     Text(badge.glyph)
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(badge.color)
+                        .foregroundStyle(badge.color(palette))
                 }
             }
             .frame(width: 12)
@@ -97,19 +96,19 @@ private struct WorkspaceFileTreeRow: View {
             HStack(spacing: 4) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     .opacity(node.isDirectory ? 1 : 0)
                     .frame(width: 10)
 
                 Image(systemName: iconName)
                     .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary)
                     .frame(width: 14)
 
                 Text(node.name)
                     .font(.system(size: 12))
-                    .foregroundStyle(badge.map { AnyShapeStyle($0.color) } ?? AnyShapeStyle(.primary))
+                    .foregroundStyle(badge?.color(palette) ?? palette.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
@@ -124,7 +123,7 @@ private struct WorkspaceFileTreeRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(RoundedRectangle(cornerRadius: 6).fill(rowFill))
+        .background(AppRowBackground(isSelected: isSelected, isHovering: isHovering))
         .onHover { isHovering = $0 }
         .nativeTooltip(node.path)
         .contextMenu {

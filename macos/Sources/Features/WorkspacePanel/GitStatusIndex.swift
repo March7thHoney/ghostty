@@ -15,17 +15,17 @@ enum GitBadge: Equatable {
         }
     }
 
-    var color: Color {
+    func color(_ palette: AppPalette) -> Color {
         switch self {
-        case .untracked: return .green
-        case .conflicted: return .red
+        case .untracked: return palette.success
+        case .conflicted: return palette.error
         case .change(let change):
             switch change {
-            case .added: return .green
-            case .modified: return .orange
-            case .deleted: return .red
-            case .renamed, .copied: return .blue
-            case .typeChanged: return .purple
+            case .added: return palette.success
+            case .modified: return palette.warning
+            case .deleted: return palette.error
+            case .renamed, .copied: return palette.info
+            case .typeChanged: return palette.purple
             }
         }
     }

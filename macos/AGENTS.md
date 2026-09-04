@@ -32,3 +32,22 @@
       application.
   (5) When done, quit via:
       `osascript -e 'tell application "<absolute path to build/Debug/Ghostty.app>" to quit'`
+
+## Window Chrome
+
+The macOS app draws its own chrome, so several config keys no longer apply here:
+
+- `macos-titlebar-style` and `window-theme` are ignored. There is one window
+  style: hidden titlebar, traffic lights over the sidebar, and a SwiftUI tab
+  strip in place of the native tab bar.
+- `theme` is overridden by `share/ghostty/app-override.conf`, which pins the
+  bundled `Cyrene Light` and `Cyrene Dark` themes so the whole window follows
+  the system appearance.
+- An explicit `background`, `foreground`, or `palette` in the user's config
+  still wins over the bundled theme, because Ghostty replays user settings on
+  top of a theme.
+- `background-opacity`, `background-blur-radius`, and `macos-window-buttons`
+  still take effect.
+
+App chrome colors live in `macos/Sources/Features/AppTheme/`. Use `AppPalette`
+from the environment rather than `.primary` / `.secondary` / `Color.accentColor`.

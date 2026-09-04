@@ -44,6 +44,18 @@ protocol TerminalViewModel: ObservableObject {
 
     /// The window hosting this view, used by the sidebar to open tabs.
     var hostWindow: NSWindow? { get }
+
+    /// The controller's own focused surface, which is set on paths SwiftUI focus never reports.
+    var focusedSurface: Ghostty.SurfaceView? { get }
+
+    /// Whether the content extends under the hidden titlebar; false for the quick terminal panel.
+    var extendsUnderTitlebar: Bool { get }
+
+    /// Window chrome facts for the top bars.
+    var chrome: WindowChromeModel { get }
+
+    /// The tab strip's data source; nil where tabs are not supported.
+    var tabStrip: TabStripModel? { get }
 }
 
 /// The main terminal view. This terminal view supports splits.
@@ -65,6 +77,18 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
     /// The most recently focused surface, equal to `focusedSurface` when it is non-nil.
     @State private var lastFocusedSurface: Weak<Ghostty.SurfaceView>?
 
+    /// The system appearance picks the palette; the bundled terminal themes follow the same switch.
+    @ObservedObject private var appearance = AppAppearance.shared
+
+    /// Resolved here rather than read from the environment, since this view is what injects it.
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
+
+    /// The width of everything left of the tab strip, so it can clear the traffic lights.
+    private var leadingBarWidth: CGFloat {
+        guard viewModel.isClaudeSidebarSupported else { return 0 }
+        return (sidebarState.isVisible ? ClaudeSidebarView.width : ClaudeSidebarRail.width) + 1
+    }
+
     // This seems like a crutch after switching from SwiftUI to AppKit lifecycle.
     @FocusState private var focused: Bool
 
@@ -79,9 +103,14 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
         return URL(fileURLWithPath: surfacePwd)
     }
 
+    /// The surface the chrome follows: SwiftUI focus once it arrives, the controller's own until then.
+    private var chromeSurface: Ghostty.SurfaceView? {
+        lastFocusedSurface?.value ?? viewModel.focusedSurface
+    }
+
     /// The focused value drives updates; the weak fallback covers moments the panel itself has focus.
     private var panelPwd: String? {
-        surfacePwd ?? lastFocusedSurface?.value?.pwd
+        surfacePwd ?? chromeSurface?.pwd
     }
 
     var body: some View {
@@ -96,25 +125,20 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     HStack(spacing: 0) {
                         if sidebarState.isVisible {
                             ClaudeSidebarView(
-                                backgroundColor: ghostty.config.backgroundColor,
-                                backgroundOpacity: ghostty.config.backgroundOpacity,
-                                dividerColor: ghostty.config.splitDividerColor,
-                                activeSurface: lastFocusedSurface?.value,
+                                chrome: viewModel.chrome,
+                                activeSurface: chromeSurface,
                                 hostWindow: { viewModel.hostWindow },
-                                currentPwd: { lastFocusedSurface?.value?.pwd })
+                                currentPwd: { chromeSurface?.pwd })
                         } else {
                             ClaudeSidebarRail(
-                                backgroundColor: ghostty.config.backgroundColor,
-                                backgroundOpacity: ghostty.config.backgroundOpacity,
+                                chrome: viewModel.chrome,
                                 hostWindow: { viewModel.hostWindow },
-                                currentPwd: { lastFocusedSurface?.value?.pwd })
+                                currentPwd: { chromeSurface?.pwd })
                         }
-                        Rectangle()
-                            .fill(ghostty.config.splitDividerColor)
-                            .frame(width: 1)
+                        AppDivider(.vertical)
                     }
                     // Match the terminal's hidden-titlebar treatment so the sidebar extends under it too.
-                    .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
+                    .ignoresSafeArea(.container, edges: viewModel.extendsUnderTitlebar ? .top : [])
                     .onAppear {
                         ClaudeSessionIndex.shared.start()
                         ClaudeLiveSessionMonitor.shared.start()
@@ -125,31 +149,33 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
 
                 if viewModel.isWorkspacePanelSupported {
                     HStack(spacing: 0) {
-                        Rectangle()
-                            .fill(ghostty.config.splitDividerColor)
-                            .frame(width: 1)
+                        AppDivider(.vertical)
                         if workspaceState.isVisible {
-                            WorkspacePanelView(
-                                backgroundColor: ghostty.config.backgroundColor,
-                                backgroundOpacity: ghostty.config.backgroundOpacity,
-                                dividerColor: ghostty.config.splitDividerColor,
-                                pwd: panelPwd)
+                            WorkspacePanelView(pwd: panelPwd)
                         } else {
-                            WorkspacePanelRail(
-                                backgroundColor: ghostty.config.backgroundColor,
-                                backgroundOpacity: ghostty.config.backgroundOpacity)
+                            WorkspacePanelRail()
                         }
                     }
                     // Match the terminal's hidden-titlebar treatment so the panel extends under it too.
-                    .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
+                    .ignoresSafeArea(.container, edges: viewModel.extendsUnderTitlebar ? .top : [])
                 }
             }
+            // One opaque ground under every pane, so no seam shows between them.
+            .background(palette.background)
+            .environment(\.colorScheme, appearance.colorScheme)
         }
     }
 
     private var terminalContent: some View {
         ZStack {
             VStack(spacing: 0) {
+                if let tabStrip = viewModel.tabStrip {
+                    TabStripView(
+                        model: tabStrip,
+                        chrome: viewModel.chrome,
+                        leadingBarWidth: leadingBarWidth)
+                }
+
                 // If we're running in debug mode we show a warning so that users
                 // know that performance will be degraded.
                 if Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE {
@@ -178,11 +204,9 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         guard let size = newValue else { return }
                         self.delegate?.cellSizeDidChange(to: size)
                     }
-                    .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
-                           idealHeight: lastFocusedSurface?.value?.initialSize?.height)
             }
             // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style
-            .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
+            .ignoresSafeArea(.container, edges: viewModel.extendsUnderTitlebar ? .top : [])
 
             if let surfaceView = lastFocusedSurface?.value {
                 TerminalCommandPaletteView(

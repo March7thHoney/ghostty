@@ -1,10 +1,5 @@
 import SwiftUI
 
-/// The terminal's background at the terminal's opacity; a material or tint here reads as a foreign panel.
-private func workspacePanelFill(background: Color, opacity: Double) -> Color {
-    background.opacity(opacity.clamped(to: 0.001...1))
-}
-
 /// The right-side workspace panel: a file tree and a read-only git status view.
 struct WorkspacePanelView: View {
     /// Fixed rather than draggable, so per-window widths can't drift and break the shared-panel illusion.
@@ -12,15 +7,11 @@ struct WorkspacePanelView: View {
 
     @ObservedObject private var state = WorkspacePanelState.shared
 
-    /// The terminal theme's background and opacity, which paint the panel and pick its color scheme.
-    let backgroundColor: Color
-    let backgroundOpacity: Double
-
-    /// The split divider color, used for the boundary and internal separators.
-    let dividerColor: Color
-
     /// The focused surface's working directory, which decides the workspace shown.
     let pwd: String?
+
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
 
     /// The workspace this panel renders; also the directory the VS Code button opens.
     @State private var model: WorkspaceModel?
@@ -29,12 +20,10 @@ struct WorkspacePanelView: View {
         VStack(spacing: 0) {
             header
 
-            Rectangle()
-                .fill(dividerColor)
-                .frame(height: 1)
+            AppDivider()
 
             if let model {
-                WorkspacePanelContent(model: model, dividerColor: dividerColor)
+                WorkspacePanelContent(model: model)
                     .id(model.root.path)
             } else {
                 waitingState
@@ -43,9 +32,8 @@ struct WorkspacePanelView: View {
         .frame(width: Self.width)
         // SwiftUI does not clip overflow, so one runaway width would otherwise paint over the terminal.
         .clipped()
-        .background(workspacePanelFill(
-            background: backgroundColor, opacity: backgroundOpacity))
-        .environment(\.colorScheme, NSColor(backgroundColor).isLightColor ? .light : .dark)
+        .background(palette.background)
+        .environment(\.colorScheme, appearance.colorScheme)
         // Resolving pwd's repository root walks the filesystem, so it stays off the render pass.
         .task(id: pwd) { model = await WorkspaceRegistry.shared.model(forPwd: pwd) }
     }
@@ -73,7 +61,7 @@ struct WorkspacePanelView: View {
             } label: {
                 Image(systemName: "folder")
             }
-            .buttonStyle(WorkspacePanelIconButtonStyle(isActive: state.selectedTab == .files))
+            .buttonStyle(AppIconButtonStyle(isActive: state.selectedTab == .files))
             .help("Files")
 
             Button {
@@ -81,7 +69,7 @@ struct WorkspacePanelView: View {
             } label: {
                 Image(systemName: "arrow.triangle.branch")
             }
-            .buttonStyle(WorkspacePanelIconButtonStyle(isActive: state.selectedTab == .git))
+            .buttonStyle(AppIconButtonStyle(isActive: state.selectedTab == .git))
             .help("Git status")
 
             if let root = model?.root, ClaudeSidebarCoordinator.vsCodeURL != nil {
@@ -93,7 +81,7 @@ struct WorkspacePanelView: View {
                         .fill(style: FillStyle(eoFill: true))
                         .frame(width: 10, height: 10)
                 }
-                .buttonStyle(WorkspacePanelIconButtonStyle())
+                .buttonStyle(AppIconButtonStyle())
                 .help("Open in VS Code")
             }
 
@@ -106,7 +94,7 @@ struct WorkspacePanelView: View {
                         .resizable()
                         .frame(width: 14, height: 14)
                 }
-                .buttonStyle(WorkspacePanelIconButtonStyle())
+                .buttonStyle(AppIconButtonStyle())
                 .help("Reveal in Finder")
             }
 
@@ -121,12 +109,13 @@ struct WorkspacePanelView: View {
             } label: {
                 Image(systemName: "sidebar.right")
             }
-            .buttonStyle(WorkspacePanelIconButtonStyle())
+            .buttonStyle(AppIconButtonStyle())
             .help("Hide panel")
         }
         .padding(.leading, 6)
         .padding(.trailing, 6)
-        .padding(.vertical, 8)
+        .frame(height: AppMetrics.topBarHeight)
+        .background(WindowDragRegion())
     }
 
     private var waitingState: some View {
@@ -136,7 +125,7 @@ struct WorkspacePanelView: View {
                 .font(.system(size: 13, weight: .medium))
             Text("The panel follows the focused terminal's directory")
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary)
                 .multilineTextAlignment(.center)
             Spacer()
         }
@@ -150,9 +139,8 @@ struct WorkspacePanelRail: View {
     static let width: CGFloat = 28
 
     @ObservedObject private var state = WorkspacePanelState.shared
-
-    let backgroundColor: Color
-    let backgroundOpacity: Double
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -161,17 +149,16 @@ struct WorkspacePanelRail: View {
             } label: {
                 Image(systemName: "sidebar.right")
             }
-            .buttonStyle(WorkspacePanelIconButtonStyle())
+            .buttonStyle(AppIconButtonStyle())
             .help("Show panel")
 
             Spacer()
         }
-        .padding(.top, 8)
+        .padding(.top, (AppMetrics.topBarHeight - 22) / 2)
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .background(workspacePanelFill(
-            background: backgroundColor, opacity: backgroundOpacity))
-        .environment(\.colorScheme, NSColor(backgroundColor).isLightColor ? .light : .dark)
+        .background(palette.background)
+        .environment(\.colorScheme, appearance.colorScheme)
     }
 }
 
@@ -189,7 +176,7 @@ private struct WorkspaceGitHubButton: View {
                 GitHubLogo()
                     .frame(width: 12, height: 12)
             }
-            .buttonStyle(WorkspacePanelIconButtonStyle())
+            .buttonStyle(AppIconButtonStyle())
             .help("Open on GitHub")
         }
     }
@@ -199,7 +186,8 @@ private struct WorkspacePanelContent: View {
     @ObservedObject var model: WorkspaceModel
     @ObservedObject private var state = WorkspacePanelState.shared
 
-    let dividerColor: Color
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
 
     /// Whether the active tab currently has a selection driving the bottom preview pane.
     private var hasSelection: Bool {
@@ -219,12 +207,12 @@ private struct WorkspacePanelContent: View {
             breadcrumb
 
             if hasSelection {
-                SplitView(.vertical, $state.previewSplit, dividerColor: dividerColor) {
+                SplitView(.vertical, $state.previewSplit, dividerColor: palette.divider) {
                     listArea
                 } right: {
                     WorkspacePreviewView(
                         model: model, tab: state.selectedTab, gitMode: state.gitMode,
-                        dividerColor: dividerColor)
+                        dividerColor: palette.divider)
                 } onEqualize: {
                     state.previewSplit = 0.5
                 }
@@ -241,10 +229,11 @@ private struct WorkspacePanelContent: View {
             HStack(spacing: 6) {
                 Image(systemName: "folder")
                     .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary)
 
                 Text(model.root.lastPathComponent)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: AppMetrics.headerFontSize, weight: .semibold))
+                    .foregroundStyle(palette.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -264,7 +253,7 @@ private struct WorkspacePanelContent: View {
                     Image(systemName: "arrow.clockwise")
                 }
             }
-            .buttonStyle(WorkspacePanelIconButtonStyle(size: 10, frame: 18))
+            .buttonStyle(AppIconButtonStyle(size: 10, frame: 18))
             .disabled(model.refreshing || model.historyLoading)
             .help("Reload")
         }
@@ -280,60 +269,7 @@ private struct WorkspacePanelContent: View {
         case .files:
             WorkspaceFileTreeView(model: model)
         case .git:
-            WorkspaceGitView(model: model, dividerColor: dividerColor)
+            WorkspaceGitView(model: model, dividerColor: palette.divider)
         }
-    }
-}
-
-/// Segments that share the icon buttons' wash, because a stock Picker's material reads as foreign here.
-struct WorkspacePanelSegmentStyle: ButtonStyle {
-    var isActive = false
-
-    @State private var isHovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(
-                isActive || isHovering || configuration.isPressed
-                    ? AnyShapeStyle(.primary)
-                    : AnyShapeStyle(.secondary))
-            .frame(maxWidth: .infinity)
-            .frame(height: 20)
-            .background(
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.primary.opacity(
-                        configuration.isPressed ? 0.14 : (isActive ? 0.10 : (isHovering ? 0.08 : 0)))))
-            .contentShape(Rectangle())
-            .onHover { isHovering = $0 }
-    }
-}
-
-/// Icon buttons: secondary until pointed at, with a soft square so they read as controls without borders.
-struct WorkspacePanelIconButtonStyle: ButtonStyle {
-    var size: CGFloat = 12
-
-    /// The hit area, which also sets the height of whatever row the button sits in.
-    var frame: CGFloat = 22
-
-    /// Keeps the active tab's button highlighted even when not hovered.
-    var isActive = false
-
-    @State private var isHovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: size, weight: .medium))
-            .foregroundStyle(
-                isActive || isHovering || configuration.isPressed
-                    ? AnyShapeStyle(.primary)
-                    : AnyShapeStyle(.secondary))
-            .frame(width: frame, height: frame)
-            .background(
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.primary.opacity(
-                        configuration.isPressed ? 0.14 : (isActive ? 0.10 : (isHovering ? 0.08 : 0)))))
-            .contentShape(Rectangle())
-            .onHover { isHovering = $0 }
     }
 }

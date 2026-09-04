@@ -1,10 +1,5 @@
 import SwiftUI
 
-/// The terminal's background at the terminal's opacity; a material or tint here reads as a foreign panel.
-private func claudeSidebarFill(background: Color, opacity: Double) -> Color {
-    background.opacity(opacity.clamped(to: 0.001...1))
-}
-
 /// Which highlight a session row gets; the focused tab outranks merely-open sessions.
 enum ClaudeSessionHighlight {
     case none
@@ -27,12 +22,11 @@ struct ClaudeSidebarView: View {
     @ObservedObject private var monitor = ClaudeLiveSessionMonitor.shared
     @ObservedObject private var state = ClaudeSidebarState.shared
 
-    /// The terminal theme's background and opacity, which paint the sidebar and pick its color scheme.
-    let backgroundColor: Color
-    let backgroundOpacity: Double
+    /// Where the traffic lights are, so the header can start after them.
+    @ObservedObject var chrome: WindowChromeModel
 
-    /// The split divider color, used for the boundary and group separators.
-    let dividerColor: Color
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
 
     /// This window's focused surface, whose foreground process marks the current tab's session.
     let activeSurface: Ghostty.SurfaceView?
@@ -72,9 +66,7 @@ struct ClaudeSidebarView: View {
         VStack(spacing: 0) {
             header
 
-            Rectangle()
-                .fill(dividerColor)
-                .frame(height: 1)
+            AppDivider()
 
             if projects.isEmpty {
                 emptyState
@@ -83,16 +75,15 @@ struct ClaudeSidebarView: View {
             }
         }
         .frame(width: Self.width)
-        .background(claudeSidebarFill(
-            background: backgroundColor, opacity: backgroundOpacity))
-        .environment(\.colorScheme, NSColor(backgroundColor).isLightColor ? .light : .dark)
+        .background(palette.background)
+        .environment(\.colorScheme, appearance.colorScheme)
     }
 
     private var header: some View {
         HStack(spacing: 2) {
             Text("Claude Code")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .font(.system(size: AppMetrics.headerFontSize, weight: .semibold))
+                .foregroundStyle(palette.textSecondary)
 
             Spacer()
 
@@ -101,7 +92,7 @@ struct ClaudeSidebarView: View {
             } label: {
                 Image(systemName: "folder.badge.plus")
             }
-            .buttonStyle(ClaudeSidebarIconButtonStyle())
+            .buttonStyle(AppIconButtonStyle())
             .help("Add a project to the sidebar")
 
             Button {
@@ -110,7 +101,7 @@ struct ClaudeSidebarView: View {
             } label: {
                 Image(systemName: "square.and.pencil")
             }
-            .buttonStyle(ClaudeSidebarIconButtonStyle())
+            .buttonStyle(AppIconButtonStyle())
             .help("New Claude conversation in the current directory")
 
             Button {
@@ -118,12 +109,13 @@ struct ClaudeSidebarView: View {
             } label: {
                 Image(systemName: "sidebar.left")
             }
-            .buttonStyle(ClaudeSidebarIconButtonStyle())
+            .buttonStyle(AppIconButtonStyle())
             .help("Hide sidebar")
         }
-        .padding(.leading, 12)
+        .padding(.leading, max(12, chrome.windowButtonsInset(barWidth: 0) + 4))
         .padding(.trailing, 6)
-        .padding(.vertical, 8)
+        .frame(height: AppMetrics.topBarHeight)
+        .background(WindowDragRegion())
     }
 
     private var emptyState: some View {
@@ -133,7 +125,7 @@ struct ClaudeSidebarView: View {
                 .font(.system(size: 13, weight: .medium))
             Text("Open a Claude session or add a project")
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary)
                 .multilineTextAlignment(.center)
             Button("Add Project") {
                 ClaudeSidebarCoordinator.addProject(from: hostWindow())
@@ -151,9 +143,7 @@ struct ClaudeSidebarView: View {
             LazyVStack(alignment: .leading, spacing: 1) {
                 ForEach(projects) { project in
                     if project.id != projects.first?.id {
-                        Rectangle()
-                            .fill(dividerColor)
-                            .frame(height: 1)
+                        AppDivider()
                             .padding(.horizontal, 8)
                             .padding(.top, 12)
                     }
@@ -163,7 +153,7 @@ struct ClaudeSidebarView: View {
                     if project.sessions.isEmpty {
                         Text("No sessions yet")
                             .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.textSecondary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
                     }
@@ -203,9 +193,12 @@ struct ClaudeSidebarRail: View {
     static let width: CGFloat = 28
 
     @ObservedObject private var state = ClaudeSidebarState.shared
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
 
-    let backgroundColor: Color
-    let backgroundOpacity: Double
+    /// The rail sits under the traffic lights, so its buttons start below them.
+    @ObservedObject var chrome: WindowChromeModel
+
     let hostWindow: () -> NSWindow?
     let currentPwd: () -> String?
 
@@ -216,7 +209,7 @@ struct ClaudeSidebarRail: View {
             } label: {
                 Image(systemName: "sidebar.left")
             }
-            .buttonStyle(ClaudeSidebarIconButtonStyle())
+            .buttonStyle(AppIconButtonStyle())
             .help("Show sidebar")
 
             Button {
@@ -225,17 +218,16 @@ struct ClaudeSidebarRail: View {
             } label: {
                 Image(systemName: "square.and.pencil")
             }
-            .buttonStyle(ClaudeSidebarIconButtonStyle())
+            .buttonStyle(AppIconButtonStyle())
             .help("New Claude conversation in the current directory")
 
             Spacer()
         }
-        .padding(.top, 8)
+        .padding(.top, chrome.windowButtonsInset(barWidth: 0) > 0 ? AppMetrics.topBarHeight : 8)
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .background(claudeSidebarFill(
-            background: backgroundColor, opacity: backgroundOpacity))
-        .environment(\.colorScheme, NSColor(backgroundColor).isLightColor ? .light : .dark)
+        .background(palette.background)
+        .environment(\.colorScheme, appearance.colorScheme)
     }
 }
 
@@ -246,6 +238,8 @@ private struct ClaudeSidebarProjectHeader: View {
 
     /// Subscribed so a copy re-renders the cached menu content and un-disables the paste item.
     @ObservedObject private var state = ClaudeSidebarState.shared
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
 
     @State private var isHovering = false
 
@@ -253,10 +247,11 @@ private struct ClaudeSidebarProjectHeader: View {
         HStack(spacing: 6) {
             Image(systemName: "folder")
                 .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary)
 
             Text(project.displayName)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: AppMetrics.headerFontSize, weight: .semibold))
+                .foregroundStyle(palette.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
@@ -269,7 +264,7 @@ private struct ClaudeSidebarProjectHeader: View {
             } label: {
                 Image(systemName: "plus")
             }
-            .buttonStyle(ClaudeSidebarIconButtonStyle(size: 10, frame: 18))
+            .buttonStyle(AppIconButtonStyle(size: 10, frame: 18))
             .help("New Claude conversation in this project")
             .opacity(isHovering ? 1 : 0)
             .allowsHitTesting(isHovering)
@@ -317,6 +312,8 @@ private struct ClaudeSidebarSessionRow: View {
 
     let hostWindow: () -> NSWindow?
 
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     @State private var isHovering = false
 
     /// Ghostty's UI is English regardless of system locale.
@@ -329,12 +326,15 @@ private struct ClaudeSidebarSessionRow: View {
 
     /// Green separates this window's current tab from the other sessions merely open in tabs.
     private var accent: Color {
-        highlight == .active ? Color.green : Color.accentColor
+        highlight == .active ? palette.success : palette.accent
     }
 
     private var rowFill: Color {
-        if highlight != .none { return accent.opacity(isHovering ? 0.20 : 0.14) }
-        return isHovering ? Color.primary.opacity(0.08) : Color.clear
+        switch highlight {
+        case .active: return palette.success.opacity(isHovering ? 0.22 : 0.16)
+        case .open: return palette.selection
+        case .none: return isHovering ? palette.hover : Color.clear
+        }
     }
 
     /// Explicit registry name > transcript title > derived registry name as a last resort.
@@ -350,14 +350,15 @@ private struct ClaudeSidebarSessionRow: View {
             HStack(spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(rowTitle)
-                        .font(.system(size: 13, weight: highlight == .none ? .regular : .medium))
+                        .font(.system(size: AppMetrics.bodyFontSize, weight: highlight == .none ? .regular : .medium))
+                        .foregroundStyle(palette.textPrimary)
                         .lineLimit(1)
 
                     if let lastActivity = session.lastActivity {
                         Text(Self.relativeFormatter.localizedString(
                             for: lastActivity, relativeTo: Date()))
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: AppMetrics.secondaryFontSize))
+                            .foregroundStyle(palette.textTertiary)
                     }
                 }
 
@@ -385,7 +386,7 @@ private struct ClaudeSidebarSessionRow: View {
             .disabled(live != nil)
         }
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: AppMetrics.rowRadius, style: .continuous)
                 .fill(rowFill)
                 .overlay(alignment: .leading) {
                     if highlight != .none {
@@ -407,6 +408,8 @@ private struct ClaudeSidebarShowMoreRow: View {
     let showMore: () -> Void
     let showLess: () -> Void
 
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     @State private var hoveringMore = false
     @State private var hoveringLess = false
 
@@ -455,7 +458,7 @@ private struct ClaudeSidebarShowMoreRow: View {
                     .font(.system(size: 11))
                 if !iconLeading { chevron(icon) }
             }
-            .foregroundStyle(isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .foregroundStyle(isHovering ? palette.textPrimary : palette.textSecondary)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -467,36 +470,13 @@ private struct ClaudeSidebarShowMoreRow: View {
     }
 }
 
-/// Icon buttons: secondary until pointed at, with a soft square so they read as controls without borders.
-private struct ClaudeSidebarIconButtonStyle: ButtonStyle {
-    var size: CGFloat = 12
-
-    /// The hit area, which also sets the height of whatever row the button sits in.
-    var frame: CGFloat = 22
-
-    @State private var isHovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: size, weight: .medium))
-            .foregroundStyle(
-                isHovering || configuration.isPressed
-                    ? AnyShapeStyle(.primary)
-                    : AnyShapeStyle(.secondary))
-            .frame(width: frame, height: frame)
-            .background(
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.primary.opacity(
-                        configuration.isPressed ? 0.14 : (isHovering ? 0.08 : 0))))
-            .contentShape(Rectangle())
-            .onHover { isHovering = $0 }
-    }
-}
-
 /// Spinner while Claude works, dot while it waits, nothing otherwise; shared with the tab accessory.
 struct ClaudeActivityIndicatorView: View {
     let activity: ClaudeLiveSession.Activity?
     var small = false
+
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
 
     var body: some View {
         switch activity {
@@ -505,7 +485,7 @@ struct ClaudeActivityIndicatorView: View {
                 .controlSize(small ? .mini : .small)
         case .idle:
             Circle()
-                .fill(.secondary)
+                .fill(palette.textTertiary)
                 .frame(width: 6, height: 6)
         case nil:
             EmptyView()

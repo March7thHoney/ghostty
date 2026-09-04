@@ -2,6 +2,8 @@ import SwiftUI
 
 /// The git tab's history mode: a lane graph of local commits, read-only like the rest of the panel.
 struct WorkspaceGitHistoryView: View {
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     @ObservedObject var model: WorkspaceModel
 
     let dividerColor: Color
@@ -54,7 +56,7 @@ struct WorkspaceGitHistoryView: View {
         HStack(spacing: 4) {
             Image(systemName: "arrow.triangle.branch")
                 .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary)
 
             Text(summaryLabel)
                 .font(.system(size: 11, weight: .medium))
@@ -107,7 +109,7 @@ struct WorkspaceGitHistoryView: View {
             if let detail {
                 Text(detail)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(4)
             }
@@ -162,7 +164,7 @@ struct WorkspaceGitHistoryView: View {
             } label: {
                 Text(model.historyLoading ? "Loading…" : "Load more")
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary)
             }
             .buttonStyle(.plain)
             .disabled(model.historyLoading)
@@ -174,6 +176,8 @@ struct WorkspaceGitHistoryView: View {
 
 /// One commit: the graph gutter, ref badges, the subject, and a dimmed author-and-age line.
 private struct WorkspaceCommitRow: View {
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     @ObservedObject var model: WorkspaceModel
 
     let commit: GitCommit
@@ -186,8 +190,8 @@ private struct WorkspaceCommitRow: View {
     private var isSelected: Bool { model.selectedCommitSha == commit.sha }
 
     private var rowFill: Color {
-        if isSelected { return Color.accentColor.opacity(isHovering ? 0.20 : 0.14) }
-        return isHovering ? Color.primary.opacity(0.08) : Color.clear
+        if isSelected { return palette.selection }
+        return isHovering ? palette.hover : Color.clear
     }
 
     private var visibleRefs: [GitRef] { GitLogParser.displayRefs(commit.refs) }
@@ -218,7 +222,7 @@ private struct WorkspaceCommitRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(RoundedRectangle(cornerRadius: 6).fill(rowFill))
+        .background(RoundedRectangle(cornerRadius: AppMetrics.rowRadius, style: .continuous).fill(rowFill))
         .onHover { isHovering = $0 }
         .nativeTooltip(GitCommitTooltip.text(for: commit))
         .contextMenu {
@@ -260,13 +264,13 @@ private struct WorkspaceCommitRow: View {
 
             if let stats = commit.stats, !stats.isZero {
                 Text("+\(stats.added)")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(palette.success)
                 Text("−\(stats.removed)")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(palette.error)
             }
         }
         .font(.system(size: 10))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(palette.textSecondary)
     }
 
     private func copy(_ text: String) {
@@ -291,6 +295,8 @@ struct WorkspaceRefBadge: View {
 
 /// The chip shape both real refs and the overflow counter use.
 struct WorkspaceRefChip: View {
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     let text: String
     let isHead: Bool
     var icon: String?
@@ -306,12 +312,12 @@ struct WorkspaceRefChip: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
-        .foregroundStyle(isHead ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+        .foregroundStyle(isHead ? palette.accent : palette.textSecondary)
         .padding(.horizontal, 4)
         .padding(.vertical, 1)
         .background(
-            RoundedRectangle(cornerRadius: 3)
-                .fill(isHead ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.08)))
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(isHead ? palette.selection : palette.hover))
         // Capped rather than fixed: the subject must not squeeze it away, nor it the subject.
         .frame(maxWidth: 90)
     }

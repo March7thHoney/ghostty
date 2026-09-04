@@ -334,7 +334,7 @@ class SurfaceScrollView: NSView {
     /// This bug is only present in macOS 26.0.
     @available(macOS, introduced: 26.0, obsoleted: 26.1)
     private func handleFrameChangeForNSScrollPocket(_ notification: Notification) {
-        guard let window = window as? HiddenTitlebarTerminalWindow else { return }
+        guard let window = window as? TerminalWindow else { return }
         guard !window.styleMask.contains(.fullScreen) else { return }
         guard let view = notification.object as? NSView else { return }
         guard view.className.contains("NSScrollPocket") else { return }

@@ -186,6 +186,9 @@ class AppDelegate: NSObject,
     // MARK: - NSApplicationDelegate
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // The tab strip is drawn in SwiftUI, so the system must never add a native tab bar.
+        NSWindow.allowsAutomaticWindowTabbing = false
+
         #if DEBUG
         if
             let suite = UserDefaults.ghosttySuite,
@@ -830,11 +833,6 @@ class AppDelegate: NSObject,
         // Update our badge since config can change what we show.
         syncDockBadge()
 
-        // Config could change window appearance. We wrap this in an async queue because when
-        // this is called as part of application launch it can deadlock with an internal
-        // AppKit mutex on the appearance.
-        DispatchQueue.main.async { self.syncAppearance(config: config) }
-
         // Decide whether to hide/unhide app from dock and app switcher
         switch config.macosHidden {
         case .never:
@@ -876,10 +874,6 @@ class AppDelegate: NSObject,
     }
 
     /// Sync the appearance of our app with the theme specified in the config.
-    private func syncAppearance(config: Ghostty.Config) {
-        NSApplication.shared.appearance = .init(ghosttyConfig: config)
-    }
-
     private func updateAppIcon(from config: Ghostty.Config) {
         Task.detached {
             await self.appIconUpdater.update(icon: AppIcon(config: config))

@@ -2,6 +2,8 @@ import SwiftUI
 
 /// A commit's whole patch as one scroll: a collapsible section per file, VS Code's multi-diff shape.
 struct WorkspaceCommitChangesView: View {
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     let diff: ParsedDiff
 
     /// The repository the paths are relative to, so a row can name a file absolutely.
@@ -23,7 +25,7 @@ struct WorkspaceCommitChangesView: View {
                     if diff.truncated {
                         Text("Truncated")
                             .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.textSecondary)
                             .padding(8)
                     }
                 }
@@ -70,7 +72,7 @@ struct WorkspaceCommitChangesView: View {
     private func note(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 10))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(palette.textSecondary)
             .padding(.leading, 10)
             .padding(.vertical, 4)
     }
@@ -78,6 +80,8 @@ struct WorkspaceCommitChangesView: View {
 
 /// One file's header bar inside the multi-file diff.
 private struct WorkspaceCommitFileHeader: View {
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     let file: ParsedDiffFile
     let repoRoot: String
     let isCollapsed: Bool
@@ -104,7 +108,7 @@ private struct WorkspaceCommitFileHeader: View {
                 HStack(spacing: 5) {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary)
                         .rotationEffect(.degrees(isCollapsed ? 0 : 90))
                         .frame(width: 10)
 
@@ -116,7 +120,7 @@ private struct WorkspaceCommitFileHeader: View {
                     if !parentDir.isEmpty {
                         Text(parentDir)
                             .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.textSecondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
@@ -126,7 +130,7 @@ private struct WorkspaceCommitFileHeader: View {
                     if let badge {
                         Text(badge.glyph)
                             .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(badge.color)
+                            .foregroundStyle(badge.color(palette))
                     }
                 }
                 .padding(.leading, 8)
@@ -136,7 +140,7 @@ private struct WorkspaceCommitFileHeader: View {
             }
             .buttonStyle(.plain)
         }
-        .background(Color.primary.opacity(isHovering ? 0.10 : 0.06))
+        .background(isHovering ? palette.selection : palette.hover)
         .onHover { isHovering = $0 }
         .nativeTooltip(absolutePath)
         .contextMenu {

@@ -138,6 +138,16 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
         }
     }
 
+    // App-bundled themes and the override config that pins them.
+    {
+        const install_step = b.addInstallDirectory(.{
+            .source_dir = b.path("src/app-theme"),
+            .install_dir = .{ .custom = "share" },
+            .install_subdir = "ghostty",
+        });
+        try steps.append(b.allocator, &install_step.step);
+    }
+
     // Fish shell completions
     {
         const run = b.addRunArtifact(build_data_exe);

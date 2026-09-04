@@ -2,6 +2,8 @@ import SwiftUI
 
 /// The bottom pane: a read-only file preview on the files tab, a read-only diff on the git tab.
 struct WorkspacePreviewView: View {
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     @ObservedObject var model: WorkspaceModel
     let tab: WorkspacePanelTab
 
@@ -59,7 +61,7 @@ struct WorkspacePreviewView: View {
         HStack(spacing: 4) {
             Text(title)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
@@ -71,7 +73,7 @@ struct WorkspacePreviewView: View {
                 } label: {
                     Image(systemName: "doc.text")
                 }
-                .buttonStyle(WorkspacePanelIconButtonStyle(
+                .buttonStyle(AppIconButtonStyle(
                     size: 10, frame: 18, isActive: model.previewMode == .content))
                 .help("Content")
 
@@ -80,7 +82,7 @@ struct WorkspacePreviewView: View {
                 } label: {
                     Image(systemName: "plusminus")
                 }
-                .buttonStyle(WorkspacePanelIconButtonStyle(
+                .buttonStyle(AppIconButtonStyle(
                     size: 10, frame: 18, isActive: model.previewMode == .changes))
                 .help("Changes")
             }
@@ -91,7 +93,7 @@ struct WorkspacePreviewView: View {
                 } label: {
                     Image(systemName: "doc.text")
                 }
-                .buttonStyle(WorkspacePanelIconButtonStyle(
+                .buttonStyle(AppIconButtonStyle(
                     size: 10, frame: 18, isActive: model.commitPreviewMode == .details))
                 .help("Details")
 
@@ -100,7 +102,7 @@ struct WorkspacePreviewView: View {
                 } label: {
                     Image(systemName: "plusminus")
                 }
-                .buttonStyle(WorkspacePanelIconButtonStyle(
+                .buttonStyle(AppIconButtonStyle(
                     size: 10, frame: 18, isActive: model.commitPreviewMode == .changes))
                 .help("Changes")
             }
@@ -114,7 +116,7 @@ struct WorkspacePreviewView: View {
             } label: {
                 Image(systemName: "xmark")
             }
-            .buttonStyle(WorkspacePanelIconButtonStyle(size: 9, frame: 18))
+            .buttonStyle(AppIconButtonStyle(size: 9, frame: 18))
             .help("Close preview")
         }
         .padding(.leading, 10)
@@ -260,7 +262,7 @@ struct WorkspacePreviewView: View {
     private var truncationNote: some View {
         Text("Truncated")
             .font(.system(size: 10))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(palette.textSecondary)
             .padding(8)
     }
 
@@ -268,7 +270,7 @@ struct WorkspacePreviewView: View {
         centered {
             Text(text)
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary)
                 .multilineTextAlignment(.center)
                 .lineLimit(4)
                 .padding(.horizontal, 12)
@@ -301,21 +303,23 @@ enum WorkspaceDiffMetrics {
 
 /// One diff row: old/new line-number gutters plus the classified, tinted line text.
 struct WorkspaceDiffLineRow: View {
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     let line: DiffLine
 
     private var rowBackground: Color {
         switch line.kind {
-        case .addition: return Color.green.opacity(0.14)
-        case .deletion: return Color.red.opacity(0.14)
-        case .hunkHeader: return Color.primary.opacity(0.05)
+        case .addition: return palette.success.opacity(0.14)
+        case .deletion: return palette.error.opacity(0.14)
+        case .hunkHeader: return palette.hover
         case .context, .meta: return Color.clear
         }
     }
 
-    private var textColor: AnyShapeStyle {
+    private var textColor: Color {
         switch line.kind {
-        case .hunkHeader, .meta: return AnyShapeStyle(.secondary)
-        case .addition, .deletion, .context: return AnyShapeStyle(.primary)
+        case .hunkHeader, .meta: return palette.textSecondary
+        case .addition, .deletion, .context: return palette.textPrimary
         }
     }
 
@@ -341,7 +345,7 @@ struct WorkspaceDiffLineRow: View {
     private func gutter(_ number: Int?) -> some View {
         Text(number.map(String.init) ?? "")
             .font(.system(size: 9.5, design: .monospaced))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(palette.textSecondary)
             .frame(width: 30, alignment: .trailing)
     }
 }

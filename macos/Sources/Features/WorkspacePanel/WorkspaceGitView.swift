@@ -2,6 +2,8 @@ import SwiftUI
 
 /// The git tab: the working tree on one side of a segmented control, committed history on the other.
 struct WorkspaceGitView: View {
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     @ObservedObject var model: WorkspaceModel
     @ObservedObject private var state = WorkspacePanelState.shared
 
@@ -26,9 +28,9 @@ struct WorkspaceGitView: View {
     private var modePicker: some View {
         HStack(spacing: 2) {
             Button("Changes") { state.gitMode = .changes }
-                .buttonStyle(WorkspacePanelSegmentStyle(isActive: state.gitMode == .changes))
+                .buttonStyle(AppSegmentStyle(isActive: state.gitMode == .changes))
             Button("History") { state.gitMode = .history }
-                .buttonStyle(WorkspacePanelSegmentStyle(isActive: state.gitMode == .history))
+                .buttonStyle(AppSegmentStyle(isActive: state.gitMode == .history))
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 6)
@@ -60,7 +62,7 @@ struct WorkspaceGitView: View {
             if let detail {
                 Text(detail)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(4)
             }
@@ -109,7 +111,7 @@ struct WorkspaceGitView: View {
                 if !isSingle {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary)
                         .rotationEffect(.degrees(isCollapsed ? 0 : 90))
                         .opacity(canCollapse ? 1 : 0)
                         .frame(width: 10)
@@ -123,24 +125,24 @@ struct WorkspaceGitView: View {
 
                 Image(systemName: "arrow.triangle.branch")
                     .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary)
 
                 if let snapshot {
                     Text(snapshot.branch ?? "(detached)")
                         .font(.system(size: isSingle ? 12 : 11, weight: isSingle ? .semibold : .regular))
-                        .foregroundStyle(isSingle ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(isSingle ? palette.textPrimary : palette.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
 
                     if let ahead = snapshot.ahead, ahead > 0 {
                         Text("↑\(ahead)")
                             .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.textSecondary)
                     }
                     if let behind = snapshot.behind, behind > 0 {
                         Text("↓\(behind)")
                             .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.textSecondary)
                     }
                 }
 
@@ -194,15 +196,15 @@ struct WorkspaceGitView: View {
         if let snapshot = status.snapshot, !snapshot.lineStats.isZero {
             HStack(spacing: 5) {
                 Text("+\(snapshot.lineStats.added)")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(palette.success)
                 Text("−\(snapshot.lineStats.removed)")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(palette.error)
             }
             .font(.system(size: 11, weight: .medium, design: .monospaced))
         } else if !isSingle, status.isClean {
             Text("clean")
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary)
         }
     }
 
@@ -221,7 +223,7 @@ struct WorkspaceGitView: View {
                 if isSingle {
                     Text("No changes")
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                 }
@@ -246,7 +248,7 @@ struct WorkspaceGitView: View {
                 .font(.system(size: 11, weight: .medium))
             Text(reason)
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary)
                 .lineLimit(3)
         }
         .padding(.leading, 14)
@@ -265,7 +267,7 @@ struct WorkspaceGitView: View {
         if !files.isEmpty {
             Text("\(title) (\(files.count))")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary)
                 .padding(.leading, 4 + indent)
                 .padding(.top, 8)
                 .padding(.bottom, 2)
@@ -281,6 +283,8 @@ struct WorkspaceGitView: View {
 
 /// One changed-file row: name, dimmed parent directory, and a trailing status glyph.
 private struct WorkspaceGitFileRow: View {
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     @ObservedObject var model: WorkspaceModel
     let repoRoot: String
     let file: GitFileStatus
@@ -297,8 +301,8 @@ private struct WorkspaceGitFileRow: View {
     private var isSelected: Bool { model.selectedGitEntry == entry }
 
     private var rowFill: Color {
-        if isSelected { return Color.accentColor.opacity(isHovering ? 0.20 : 0.14) }
-        return isHovering ? Color.primary.opacity(0.08) : Color.clear
+        if isSelected { return palette.selection }
+        return isHovering ? palette.hover : Color.clear
     }
 
     /// The badge this row reports, taking the change from the section it sits in.
@@ -333,7 +337,7 @@ private struct WorkspaceGitFileRow: View {
                 if !parentDir.isEmpty {
                     Text(parentDir)
                         .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -342,7 +346,7 @@ private struct WorkspaceGitFileRow: View {
 
                 Text(badge?.glyph ?? "")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(badge.map { AnyShapeStyle($0.color) } ?? AnyShapeStyle(.secondary))
+                    .foregroundStyle(badge?.color(palette) ?? palette.textSecondary)
             }
             .padding(.leading, 10 + indent)
             .padding(.trailing, 8)
@@ -350,7 +354,7 @@ private struct WorkspaceGitFileRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(RoundedRectangle(cornerRadius: 6).fill(rowFill))
+        .background(RoundedRectangle(cornerRadius: AppMetrics.rowRadius, style: .continuous).fill(rowFill))
         .onHover { isHovering = $0 }
         .nativeTooltip(entry.absolutePath)
         .contextMenu {
