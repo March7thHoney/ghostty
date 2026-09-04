@@ -5,6 +5,9 @@ struct UpdatePill: View {
     /// The update view model that provides the current state and information
     @ObservedObject var model: UpdateViewModel
 
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
+
     /// Whether the update popover is currently visible
     @State private var showPopover = false
 
@@ -62,7 +65,9 @@ struct UpdatePill: View {
             .padding(.vertical, 4)
             .background(
                 Capsule()
-                    .fill(model.backgroundColor)
+                    .fill(model.backgroundColor(palette))
+                    .overlay(Capsule().strokeBorder(model.borderColor(palette), lineWidth: 1))
+                    .shadow(color: palette.shadow, radius: 5, x: 0, y: 3)
             )
             .foregroundColor(model.foregroundColor)
             .contentShape(Capsule())

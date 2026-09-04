@@ -146,7 +146,7 @@ class UpdateViewModel: ObservableObject {
     }
 
     /// The background color for the update pill.
-    var backgroundColor: Color {
+    func backgroundColor(_ palette: AppPalette) -> Color {
         switch state {
         case .permissionRequest:
             return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.3, of: .black) ?? .systemBlue)
@@ -157,7 +157,17 @@ class UpdateViewModel: ObservableObject {
         case .error:
             return .orange.opacity(0.2)
         default:
-            return Color(nsColor: .controlBackgroundColor)
+            return palette.surfaceRaised
+        }
+    }
+
+    /// Only the palette-filled states need an edge; the saturated ones already separate from the terminal.
+    func borderColor(_ palette: AppPalette) -> Color {
+        switch state {
+        case .permissionRequest, .updateAvailable, .notFound, .error:
+            return .clear
+        default:
+            return palette.controlBorder
         }
     }
 

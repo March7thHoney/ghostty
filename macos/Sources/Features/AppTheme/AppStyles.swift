@@ -33,15 +33,17 @@ private struct AppIconButtonBody<Label: View>: View {
 
     var body: some View {
         let lit = isActive || isHovering || isPressed
+        let isOn = isActive || isPressed
         label
             .font(.system(size: size, weight: .medium))
             .foregroundStyle(lit ? palette.textPrimary : palette.textSecondary)
             .frame(width: frame, height: frame)
             .background(
                 RoundedRectangle(cornerRadius: AppMetrics.controlRadius, style: .continuous)
-                    .fill(isPressed || isActive
-                        ? palette.selection
-                        : (isHovering ? palette.hover : Color.clear)))
+                    .fill(isOn ? palette.selection : (isHovering ? palette.hover : Color.clear))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppMetrics.controlRadius, style: .continuous)
+                            .strokeBorder(isOn ? palette.controlBorder : .clear, lineWidth: 1)))
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
     }
@@ -70,6 +72,7 @@ private struct AppSegmentBody<Label: View>: View {
 
     var body: some View {
         let lit = isActive || isHovering || isPressed
+        let isOn = isActive || isPressed
         label
             .font(.system(size: AppMetrics.secondaryFontSize, weight: .medium))
             .foregroundStyle(lit ? palette.textPrimary : palette.textSecondary)
@@ -77,9 +80,10 @@ private struct AppSegmentBody<Label: View>: View {
             .frame(height: 20)
             .background(
                 RoundedRectangle(cornerRadius: AppMetrics.controlRadius, style: .continuous)
-                    .fill(isPressed || isActive
-                        ? palette.selection
-                        : (isHovering ? palette.hover : Color.clear)))
+                    .fill(isOn ? palette.selection : (isHovering ? palette.hover : Color.clear))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppMetrics.controlRadius, style: .continuous)
+                            .strokeBorder(isOn ? palette.controlBorder : .clear, lineWidth: 1)))
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
     }

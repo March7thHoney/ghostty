@@ -66,7 +66,7 @@ struct TabStripView: View {
         .frame(height: AppMetrics.topBarHeight)
         .frame(maxWidth: .infinity)
         .background(WindowDragRegion())
-        .background(palette.background)
+        .background(palette.surface)
         .environment(\.colorScheme, appearance.colorScheme)
     }
 
@@ -174,7 +174,10 @@ private struct TabStripItemView: View {
         .frame(height: 26)
         .background(
             RoundedRectangle(cornerRadius: AppMetrics.rowRadius, style: .continuous)
-                .fill(item.isSelected ? palette.selection : (isHovering ? palette.hover : Color.clear)))
+                .fill(item.isSelected ? palette.selection : (isHovering ? palette.hover : Color.clear))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppMetrics.rowRadius, style: .continuous)
+                        .strokeBorder(item.isSelected ? palette.controlBorder : .clear, lineWidth: 1)))
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .onTapGesture { handleClick() }

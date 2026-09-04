@@ -160,7 +160,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     .ignoresSafeArea(.container, edges: viewModel.extendsUnderTitlebar ? .top : [])
                 }
             }
-            // One opaque ground under every pane, so no seam shows between them.
+            // The ground the terminal sits on; flanking panes step down from it.
             .background(palette.background)
             .environment(\.colorScheme, appearance.colorScheme)
         }
@@ -174,6 +174,8 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         model: tabStrip,
                         chrome: viewModel.chrome,
                         leadingBarWidth: leadingBarWidth)
+
+                    AppDivider()
                 }
 
                 // If we're running in debug mode we show a warning so that users
@@ -212,7 +214,6 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                 TerminalCommandPaletteView(
                     surfaceView: surfaceView,
                     isPresented: $viewModel.commandPaletteIsShowing,
-                    ghosttyConfig: ghostty.config,
                     updateViewModel: (NSApp.delegate as? AppDelegate)?.updateViewModel) { action in
                     self.delegate?.performAction(action, on: surfaceView)
                 }
@@ -245,9 +246,20 @@ private struct UpdateOverlay: View {
 }
 
 struct DebugBuildWarningView: View {
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
+
     @State private var isPopover = false
 
     var body: some View {
+        VStack(spacing: 0) {
+            banner
+
+            AppDivider()
+        }
+    }
+
+    private var banner: some View {
         HStack {
             Spacer()
 
@@ -267,7 +279,7 @@ struct DebugBuildWarningView: View {
 
             Spacer()
         }
-        .background(Color(.windowBackgroundColor))
+        .background(palette.surface)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Debug build warning")

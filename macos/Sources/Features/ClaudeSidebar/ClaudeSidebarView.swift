@@ -75,7 +75,7 @@ struct ClaudeSidebarView: View {
             }
         }
         .frame(width: Self.width)
-        .background(palette.background)
+        .background(palette.surface)
         .environment(\.colorScheme, appearance.colorScheme)
     }
 
@@ -226,7 +226,7 @@ struct ClaudeSidebarRail: View {
         .padding(.top, chrome.windowButtonsInset(barWidth: 0) > 0 ? AppMetrics.topBarHeight : 8)
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .background(palette.background)
+        .background(palette.surfaceSunken)
         .environment(\.colorScheme, appearance.colorScheme)
     }
 }

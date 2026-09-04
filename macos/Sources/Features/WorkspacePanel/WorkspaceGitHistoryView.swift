@@ -317,7 +317,10 @@ struct WorkspaceRefChip: View {
         .padding(.vertical, 1)
         .background(
             RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(isHead ? palette.selection : palette.hover))
+                .fill(isHead ? palette.selection : palette.hover)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .strokeBorder(palette.controlBorder, lineWidth: 1)))
         // Capped rather than fixed: the subject must not squeeze it away, nor it the subject.
         .frame(maxWidth: 90)
     }

@@ -9,9 +9,6 @@ struct TerminalCommandPaletteView: View {
     /// result in the view disappearing.
     @Binding var isPresented: Bool
 
-    /// The configuration so we can lookup keyboard shortcuts.
-    @ObservedObject var ghosttyConfig: Ghostty.Config
-
     /// The update view model for showing update commands.
     var updateViewModel: UpdateViewModel?
 
@@ -30,7 +27,6 @@ struct TerminalCommandPaletteView: View {
 
                         CommandPaletteView(
                             isPresented: $isPresented,
-                            backgroundColor: ghosttyConfig.backgroundColor,
                             options: commandOptions
                         )
                         .zIndex(1) // Ensure it's on top

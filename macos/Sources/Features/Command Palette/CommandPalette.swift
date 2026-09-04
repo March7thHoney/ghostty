@@ -59,8 +59,10 @@ struct CommandOption: Identifiable, Hashable {
 
 struct CommandPaletteView: View {
     @Binding var isPresented: Bool
-    var backgroundColor: Color = Color(nsColor: .windowBackgroundColor)
     var options: [CommandOption]
+
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
     @State private var rawQuery = ""
     @State private var selectedIndex: UInt?
     @State private var hoveredOptionID: UUID?
@@ -90,12 +92,6 @@ struct CommandPaletteView: View {
     }
 
     var body: some View {
-        let scheme: ColorScheme = if NSColor(backgroundColor).isLightColor {
-            .light
-        } else {
-            .dark
-        }
-
         VStack(alignment: .leading, spacing: 0) {
             CommandPaletteQuery(query: $rawQuery) { event in
                 switch event {
@@ -152,24 +148,16 @@ struct CommandPaletteView: View {
                 }
         }
         .frame(maxWidth: 500)
-        .background(
-            ZStack {
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                Rectangle()
-                    .fill(backgroundColor)
-                    .blendMode(.color)
-            }
-                .compositingGroup()
-        )
+        .background(palette.surfaceRaised)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color(nsColor: .tertiaryLabelColor).opacity(0.75))
+                .stroke(palette.controlBorder)
         )
-        .shadow(radius: 32, x: 0, y: 12)
+        .shadow(color: palette.shadow, radius: 8, x: 0, y: 3)
+        .shadow(color: palette.shadow, radius: 24, x: 0, y: 10)
         .padding()
-        .environment(\.colorScheme, scheme)
+        .environment(\.colorScheme, appearance.colorScheme)
         .onChange(of: isPresented) { newValue in
             if !newValue {
                 // This is optional, since most of the time

@@ -32,7 +32,7 @@ struct WorkspacePanelView: View {
         .frame(width: Self.width)
         // SwiftUI does not clip overflow, so one runaway width would otherwise paint over the terminal.
         .clipped()
-        .background(palette.background)
+        .background(palette.surface)
         .environment(\.colorScheme, appearance.colorScheme)
         // Resolving pwd's repository root walks the filesystem, so it stays off the render pass.
         .task(id: pwd) { model = await WorkspaceRegistry.shared.model(forPwd: pwd) }
@@ -157,7 +157,7 @@ struct WorkspacePanelRail: View {
         .padding(.top, (AppMetrics.topBarHeight - 22) / 2)
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .background(palette.background)
+        .background(palette.surfaceSunken)
         .environment(\.colorScheme, appearance.colorScheme)
     }
 }
