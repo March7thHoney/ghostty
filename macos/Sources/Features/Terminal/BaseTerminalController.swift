@@ -942,14 +942,18 @@ class BaseTerminalController: NSWindowController,
     private func applyTitleToWindow() {
         guard let window else { return }
 
+        let title: String
         if let titleOverride {
-            window.title = decorate(
+            title = decorate(
                 title: titleOverride,
                 bell: focusedSurface?.bell ?? false)
-            return
+        } else {
+            title = lastComputedTitle
         }
 
-        window.title = lastComputedTitle
+        // Rewriting an unchanged title still runs the window's chrome work on every focus change.
+        guard window.title != title else { return }
+        window.title = title
     }
 
     func pwdDidChange(to: URL?) {

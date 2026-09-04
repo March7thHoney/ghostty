@@ -186,8 +186,8 @@ class TerminalWindow: NSWindow {
 
     override var title: String {
         didSet {
-            // Setting the title reveals the native title view on macOS 15+, so re-hide it.
-            applyChromeStyle()
+            guard title != oldValue else { return }
+            rehideTitle()
             postTabStateDidChange()
         }
     }
@@ -217,11 +217,11 @@ class TerminalWindow: NSWindow {
         // Reapplying the mask during fullscreen breaks non-native fullscreen (ghostty#8415).
         if terminalController?.fullscreenStyle?.isFullscreen ?? false { return }
 
-        if styleMask.contains(.fullScreen) {
-            styleMask = Self.chromeStyleMask.union([.fullScreen])
-        } else {
-            styleMask = Self.chromeStyleMask
-        }
+        // Reassigning an unchanged mask still makes AppKit rebuild the theme frame.
+        let mask = styleMask.contains(.fullScreen)
+            ? Self.chromeStyleMask.union([.fullScreen])
+            : Self.chromeStyleMask
+        if styleMask != mask { styleMask = mask }
 
         // Never pin an appearance: the whole window follows the system.
         appearance = nil
@@ -239,6 +239,13 @@ class TerminalWindow: NSWindow {
 
         hideTitlebarBackground()
         layoutWindowButtons()
+    }
+
+    /// Setting the title reveals the native title view on macOS 15+; this is all it takes to re-hide it.
+    private func rehideTitle() {
+        guard styleMask.contains(.titled) else { return }
+        titleVisibility = .hidden
+        hideTitlebarBackground()
     }
 
     /// Clears every layer the titlebar would otherwise paint, so the window background shows through.
@@ -376,6 +383,13 @@ class TerminalWindow: NSWindow {
     var titlebarContainer: NSView? {
         // If we aren't fullscreen then the titlebar container is part of our window.
         if !styleMask.contains(.fullScreen) {
+            // It is a direct child of the theme frame, so this never walks the content view's tree.
+            if let themeFrame = contentView?.superview,
+               let container = themeFrame.subviews.first(where: {
+                   String(describing: type(of: $0)) == "NSTitlebarContainerView"
+               }) {
+                return container
+            }
             return contentView?.firstViewFromRoot(withClassName: "NSTitlebarContainerView")
         }
 

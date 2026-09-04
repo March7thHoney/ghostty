@@ -105,6 +105,21 @@ private struct TabStripItemView: View {
     @State private var draft = ""
     @FocusState private var editorFocused: Bool
 
+    /// When the last click landed, so a double click can rename without delaying the first one.
+    @State private var lastClickAt: Date?
+
+    /// Selecting on the first click keeps the switch instant; a SwiftUI count-2 gesture would gate it.
+    private func handleClick() {
+        let now = Date()
+        if let lastClickAt, now.timeIntervalSince(lastClickAt) <= NSEvent.doubleClickInterval {
+            self.lastClickAt = nil
+            beginRename()
+            return
+        }
+        lastClickAt = now
+        select()
+    }
+
     var body: some View {
         HStack(spacing: 6) {
             if let color = item.tabColor.displayColor {
@@ -162,8 +177,11 @@ private struct TabStripItemView: View {
                 .fill(item.isSelected ? palette.selection : (isHovering ? palette.hover : Color.clear)))
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
-        .onTapGesture(count: 2) { beginRename() }
-        .onTapGesture(count: 1) { select() }
+        .onTapGesture { handleClick() }
+        // Flipping away and back lands two clicks on this tab without being a double click.
+        .onChange(of: item.isSelected) { isSelected in
+            if !isSelected { lastClickAt = nil }
+        }
         .help(item.title)
     }
 }
