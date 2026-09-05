@@ -88,7 +88,7 @@ struct TabStripView: View {
     }
 }
 
-/// One tab: color dot, Claude activity, title (or its inline editor), and a close button on hover.
+/// One tab: color dot, Claude activity, title (or its inline editor); the close button replaces the shortcut badge on hover.
 private struct TabStripItemView: View {
     let item: TabStripModel.Item
     let isEditing: Bool
@@ -155,19 +155,23 @@ private struct TabStripItemView: View {
                     .frame(maxWidth: 180)
             }
 
-            if let key = item.keyEquivalent, !isHovering, !isEditing {
-                Text(key)
-                    .font(.system(size: 10))
-                    .foregroundStyle(palette.textFaint)
-            }
+            // Badge and close button share one slot so the tab keeps its width on hover.
+            ZStack {
+                if let key = item.keyEquivalent {
+                    Text(key)
+                        .font(.system(size: 10))
+                        .foregroundStyle(palette.textFaint)
+                        .opacity(isHovering || isEditing ? 0 : 1)
+                }
 
-            Button(action: close) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                Button(action: close) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                .buttonStyle(AppIconButtonStyle(size: 9, frame: 16))
+                .opacity(isHovering && !isEditing ? 1 : 0)
+                .allowsHitTesting(isHovering && !isEditing)
             }
-            .buttonStyle(AppIconButtonStyle(size: 9, frame: 16))
-            .opacity(isHovering && !isEditing ? 1 : 0)
-            .allowsHitTesting(isHovering && !isEditing)
         }
         .padding(.leading, 10)
         .padding(.trailing, 4)
