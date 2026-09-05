@@ -33,3 +33,4 @@ vgcore.*
 
 /sprite_face_test*
 *.profraw
+/tmp/
