@@ -140,21 +140,32 @@ struct WorkspacePreviewView: View {
             if preview.isBinary {
                 centered("Binary file")
             } else {
-                ScrollView([.vertical, .horizontal]) {
-                    Text(preview.text)
-                        .font(.system(size: 11.5, design: .monospaced))
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: true, vertical: true)
-                        .padding(8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                previewLines(preview)
+            }
+        } else {
+            centered { ProgressView().controlSize(.small) }
+        }
+    }
+
+    /// One row per line, laid out lazily; a single Text of the whole file stalls the main thread.
+    private func previewLines(_ preview: FilePreview) -> some View {
+        GeometryReader { geo in
+            ScrollView([.vertical, .horizontal]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(preview.lines.indices, id: \.self) { index in
+                        WorkspacePreviewLineRow(text: preview.lines[index])
+                    }
 
                     if preview.truncated {
                         truncationNote
                     }
                 }
+                // Explicit width: a lazy stack only measures visible rows, so its own ideal drifts.
+                .frame(
+                    width: max(geo.size.width, WorkspaceDiffMetrics.previewContentWidth(preview)),
+                    alignment: .leading)
+                .padding(8)
             }
-        } else {
-            centered { ProgressView().controlSize(.small) }
         }
     }
 
@@ -298,6 +309,33 @@ enum WorkspaceDiffMetrics {
     /// Gutters plus padding plus a safety margin on top of the estimated text width.
     static func contentWidth(_ diff: ParsedDiff) -> CGFloat {
         CGFloat(diff.maxColumns + 4) * charWidth + 60 + 12
+    }
+
+    /// The file preview uses a slightly larger font, so it gets its own advance.
+    static let previewCharWidth: CGFloat = {
+        let font = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
+        return ("0" as NSString).size(withAttributes: [.font: font]).width
+    }()
+
+    /// Padding plus a safety margin on top of the estimated text width.
+    static func previewContentWidth(_ preview: FilePreview) -> CGFloat {
+        CGFloat(preview.maxColumns + 4) * previewCharWidth + 16 + 12
+    }
+}
+
+/// One file-preview row; empty lines render a space so they keep their height.
+struct WorkspacePreviewLineRow: View {
+    @ObservedObject private var appearance = AppAppearance.shared
+    private var palette: AppPalette { AppPalette.resolve(appearance.colorScheme) }
+    let text: String
+
+    var body: some View {
+        Text(text.isEmpty ? " " : text)
+            .font(.system(size: 11.5, design: .monospaced))
+            .foregroundStyle(palette.textPrimary)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .textSelection(.enabled)
     }
 }
 

@@ -107,9 +107,6 @@ pub const StreamHandler = struct {
         self.enquiry_response = config.enquiry_response;
         self.terminal.setDefaultCursorStyle(config.cursor_style);
         self.terminal.setDefaultCursorBlink(config.cursor_blink);
-
-        // The config could have changed any of our colors so update mode 2031
-        self.messageWriter(.{ .color_scheme_report = .{ .force = false } });
     }
 
     inline fn surfaceMessageWriter(

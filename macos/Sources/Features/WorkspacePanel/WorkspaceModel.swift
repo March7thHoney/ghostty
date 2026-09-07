@@ -460,6 +460,8 @@ final class WorkspaceModel: ObservableObject {
 
     private func publishPreview(_ preview: FilePreview, generation: Int) {
         guard generation == previewGeneration, preview.path == selectedFilePath else { return }
+        // Refreshes re-read the file every tick; an unchanged snapshot must not re-lay out the pane.
+        guard filePreview != preview else { return }
         filePreview = preview
     }
 
@@ -488,7 +490,10 @@ final class WorkspaceModel: ObservableObject {
         let generation = fileDiffGeneration
         fileDiff = .loading
         Task.detached(priority: .userInitiated) { [weak self] in
-            let state = await Self.runDiff(args: args, root: URL(fileURLWithPath: repoRoot))
+            // An untracked multi-megabyte file diffs in full against /dev/null, so cap it.
+            let state = await Self.runDiff(
+                args: args, root: URL(fileURLWithPath: repoRoot),
+                maxOutputBytes: GitHistoryLoader.maxDiffBytes)
             await self?.publishFileDiff(state, path: path, generation: generation)
         }
     }
@@ -542,7 +547,9 @@ final class WorkspaceModel: ObservableObject {
         Task.detached(priority: .userInitiated) { [weak self] in
             let state: DiffState
             if let args = Self.diffArgs(for: entry) {
-                state = await Self.runDiff(args: args, root: URL(fileURLWithPath: entry.repoRoot))
+                state = await Self.runDiff(
+                    args: args, root: URL(fileURLWithPath: entry.repoRoot),
+                    maxOutputBytes: GitHistoryLoader.maxDiffBytes)
             } else {
                 state = .failed("Untracked directory; expand it in the file tree")
             }

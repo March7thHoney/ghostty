@@ -430,6 +430,9 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
     self.renderer_state.mutex.lockUncancelable(global.io());
     defer self.renderer_state.mutex.unlock(global.io());
 
+    // Mode 2031 only reports light/dark, so remember whether that flipped.
+    const theme_changed = self.config.conditional_state.theme != config.conditional_state.theme;
+
     // Deinit our old config. We do this in the lock because the
     // stream handler may be referencing the old config (i.e. enquiry resp)
     self.config.deinit();
@@ -462,6 +465,9 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
     // Set the image limits
     self.terminal.setKittyGraphicsSizeLimit(self.alloc, config.image_storage_limit);
     self.terminal.setKittyGraphicsLoadingLimits(.allWithTempDir(global.tmpDirPath()));
+
+    // A same-value report would race apps that re-query their colors on it.
+    if (theme_changed) try self.colorSchemeReportLocked(td, false);
 }
 
 /// Resize the terminal.

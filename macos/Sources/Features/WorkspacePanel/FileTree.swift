@@ -28,19 +28,26 @@ struct FileTreeRow: Identifiable, Equatable {
     }
 }
 
-/// A read-only snapshot of one file's contents for the preview pane.
+/// A read-only snapshot of one file's contents for the preview pane, already split into rows.
 struct FilePreview: Equatable {
     let path: String
-    let text: String
+    let lines: [String]
+    /// Widest row in visual columns, so the lazy pane can size its scroll content up front.
+    let maxColumns: Int
     let isBinary: Bool
     let truncated: Bool
+
+    static func empty(path: String, isBinary: Bool) -> FilePreview {
+        FilePreview(path: path, lines: [], maxColumns: 0, isBinary: isBinary, truncated: false)
+    }
 }
 
 /// Pure directory-scanning and flattening logic behind the file tree.
 enum FileTreeScanner {
-    /// Byte and line caps keeping the preview pane responsive on large files.
+    /// Byte, line, and per-line caps keeping the preview pane responsive on large files.
     static let previewByteLimit = 1_000_000
     static let previewLineLimit = 5000
+    static let previewLineLengthLimit = 4000
 
     /// One directory's entries in Finder order, or nil when it cannot be read.
     nonisolated static func children(of dir: URL) -> [FileTreeNode]? {
@@ -101,23 +108,37 @@ enum FileTreeScanner {
         guard let handle = FileHandle(forReadingAtPath: path),
               let data = try? handle.read(upToCount: previewByteLimit + 1)
         else {
-            return FilePreview(path: path, text: "", isBinary: false, truncated: false)
+            return .empty(path: path, isBinary: false)
         }
         defer { try? handle.close() }
 
         // A NUL in the first 8KB is the classic text/binary sniff.
         if data.prefix(8192).contains(0) {
-            return FilePreview(path: path, text: "", isBinary: true, truncated: false)
+            return .empty(path: path, isBinary: true)
         }
 
         var truncated = data.count > previewByteLimit
-        var text = String(decoding: data.prefix(previewByteLimit), as: UTF8.self)
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        if lines.count > previewLineLimit {
-            lines = Array(lines.prefix(previewLineLimit))
-            text = lines.joined(separator: "\n")
+        let text = String(decoding: data.prefix(previewByteLimit), as: UTF8.self)
+        var rows = text.split(separator: "\n", omittingEmptySubsequences: false)
+        if rows.count > previewLineLimit {
+            rows = Array(rows.prefix(previewLineLimit))
             truncated = true
         }
-        return FilePreview(path: path, text: text, isBinary: false, truncated: truncated)
+
+        var lines: [String] = []
+        lines.reserveCapacity(rows.count)
+        var maxColumns = 0
+        for row in rows {
+            var line = String(row)
+            // One multi-megabyte line would still stall layout, so rows get their own cap.
+            if line.count > previewLineLengthLimit {
+                line = String(line.prefix(previewLineLengthLimit)) + "…"
+                truncated = true
+            }
+            maxColumns = max(maxColumns, DiffParser.visualColumns(of: line))
+            lines.append(line)
+        }
+        return FilePreview(
+            path: path, lines: lines, maxColumns: maxColumns, isBinary: false, truncated: truncated)
     }
 }

@@ -120,7 +120,32 @@ struct FileTreeTests {
         let small = dir.appendingPathComponent("small.txt")
         try Data("hello\nworld".utf8).write(to: small)
         let smallPreview = FileTreeScanner.loadPreview(path: small.path)
-        #expect(smallPreview.text == "hello\nworld")
+        #expect(smallPreview.lines == ["hello", "world"])
+        #expect(smallPreview.maxColumns == 5)
         #expect(!smallPreview.truncated)
+    }
+
+    @Test func previewCapsLineLengthAndMeasuresColumns() throws {
+        let dir = try makeFixtureDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let wide = dir.appendingPathComponent("wide.txt")
+        let longLine = String(repeating: "x", count: FileTreeScanner.previewLineLengthLimit + 50)
+        try Data("short\n\(longLine)\n".utf8).write(to: wide)
+        let preview = FileTreeScanner.loadPreview(path: wide.path)
+        #expect(preview.truncated)
+        #expect(preview.lines.count == 3)
+        #expect(preview.lines[0] == "short")
+        #expect(preview.lines[1].count == FileTreeScanner.previewLineLengthLimit + 1)
+        #expect(preview.lines[1].hasSuffix("…"))
+        #expect(preview.lines[2].isEmpty)
+        #expect(preview.maxColumns == FileTreeScanner.previewLineLengthLimit + 2)
+
+        let cjk = dir.appendingPathComponent("cjk.txt")
+        try Data("ab\n\t中文".utf8).write(to: cjk)
+        let cjkPreview = FileTreeScanner.loadPreview(path: cjk.path)
+        #expect(!cjkPreview.truncated)
+        #expect(cjkPreview.maxColumns == DiffParser.visualColumns(of: "\t中文"))
+        #expect(cjkPreview.maxColumns == 8)
     }
 }
